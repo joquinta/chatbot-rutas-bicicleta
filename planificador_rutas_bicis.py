@@ -16,9 +16,9 @@ from langchain.adapters.openai import convert_openai_messages
 from langchain_community.chat_models import ChatOpenAI
 
 # Claves API (debes definirlas)
-# OWM_API_KEY = "TU_OPENWEATHERMAP_API_KEY"
-# ORS_API_KEY = "TU_OPENROUTESERVICE_API_KEY"
-# OPENAI_API_KEY = "TU_OPENAI_API_KEY"
+OWM_API_KEY = st.secrets["OWM_API_KEY"]
+ORS_API_KEY = st.secrets["ORS_API_KEY"]
+OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 
 # Funciones ya definidas: obtener_coordenadas, calcular_distancia_tiempo, obtener_clima
 
