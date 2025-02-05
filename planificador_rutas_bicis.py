@@ -27,7 +27,9 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Función para obtener latitud y longitud con OpenWeatherMap Geocoding API
 def obtener_coordenadas(lugar):
-    url = f"http://api.openweathermap.org/geo/1.0/direct?q={lugar}&limit=1&appid={OWM_API_KEY}"
+    # Forzar la búsqueda en Chile agregando ",cl" al final del lugar
+    lugar_busqueda = f"{lugar},cl"
+    url = f"http://api.openweathermap.org/geo/1.0/direct?q={lugar_busqueda}&limit=1&appid={OWM_API_KEY}"
     respuesta = requests.get(url).json()
     
     if not respuesta:
