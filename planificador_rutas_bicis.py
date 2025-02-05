@@ -61,7 +61,16 @@ query = st.chat_input("Describe tu ruta de ciclismo...")
 if query:
     with st.spinner("Procesando tu ruta..."):
         extract_prompt = [
-            {"role": "system", "content": "Extrae los datos en JSON puro: { 'hora_salida': 'YYYY-MM-DD HH:MM', 'lugares': { 'inicio': 'Lugar', 'intermedios': ['Punto 1', 'Punto 2'], 'destino': 'Destino' } }"},
+                {"role": "system", "content": "Extrae los siguientes datos en **JSON puro**, sin explicaciones:\n"
+     "{\n"
+     "  \"hora_salida\": \"YYYY-MM-DD HH:MM\",\n"
+     "  \"lugares\": {\n"
+     "    \"inicio\": \"Nombre del lugar de inicio\",\n"
+     "    \"intermedios\": [\"Nombre del punto intermedio opcional 1\", \"Nombre del punto intermedio opcional 2\"],\n"
+     "    \"destino\": \"Nombre del destino final\"\n"
+     "  }\n"
+     "}"
+    },
             {"role": "user", "content": query}
         ]
         lc_messages = convert_openai_messages(extract_prompt)
