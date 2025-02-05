@@ -78,82 +78,114 @@ def obtener_clima(lat, lon, fecha_hora):
     mejor_prediccion = min(predicciones_futuras, key=lambda x: datetime.utcfromtimestamp(x["dt"]))
 
     return {
-        "temperatura": f"{mejor_prediccion['main']['temp']}°C",
+        "temperatura": mejor_prediccion['main']['temp'],
         "condiciones": mejor_prediccion["weather"][0]["description"].capitalize()
     }
+
+# Función para generar recomendaciones basadas en el clima
+def generar_recomendacion(climas):
+    recomendaciones = []
+    for clima in climas:
+        if clima["temperatura"] != "N/A" and clima["temperatura"] > 30:
+            recomendaciones.append("Lleva bloqueador solar y bebidas isotónicas por las altas temperaturas.")
+        if "lluvia" in clima["condiciones"].lower():
+            recomendaciones.append("Lleva chaqueta impermeable y protege tu celular de la lluvia.")
+    
+    if not recomendaciones:
+        return "El clima parece favorable. ¡Disfruta tu ruta!"
+    return " ".join(set(recomendaciones))  # Eliminar duplicados
 
 # Interfaz de Streamlit
 st.title("Planificador de Rutas de Bicicleta en Chile 🚴‍♂️")
 
-query = st.text_input("Ingresa tu ruta:", "Saldre a pedalear el 8 de febrero del 2025 a las 8:00 desde osorno,cl, pasando por la san pablo,cl, la unión,cl y valdivia,cl.")
+# Campo de entrada sin mensaje precargado
+query = st.text_input("Ingresa tu ruta:", placeholder="Ej: Saldré a pedalear el 8 de febrero del 2025 a las 8:00 desde Osorno, pasando por San Pablo y La Unión, hasta Valdivia.")
 
 if st.button("Planificar Ruta"):
-    # Paso 2: Extraer información clave con OpenAI
-    extract_prompt = [
-        {"role": "system", "content": "Extrae los siguientes datos en **JSON puro**, sin explicaciones:\n"
-         "{\n"
-         "  \"hora_salida\": \"YYYY-MM-DD HH:MM\",\n"
-         "  \"lugares\": {\n"
-         "    \"inicio\": \"Nombre del lugar de inicio\",\n"
-         "    \"intermedios\": [\"Nombre del punto intermedio opcional 1\", \"Nombre del punto intermedio opcional 2\"],\n"
-         "    \"destino\": \"Nombre del destino final\"\n"
-         "  }\n"
-         "}"
-        },
-        {"role": "user", "content": query}
-    ]
+    if not query:
+        st.warning("Por favor, ingresa una ruta válida.")
+    else:
+        # Paso 2: Extraer información clave con OpenAI
+        extract_prompt = [
+            {"role": "system", "content": "Extrae los siguientes datos en **JSON puro**, sin explicaciones:\n"
+             "{\n"
+             "  \"hora_salida\": \"YYYY-MM-DD HH:MM\",\n"
+             "  \"lugares\": {\n"
+             "    \"inicio\": \"Nombre del lugar de inicio\",\n"
+             "    \"intermedios\": [\"Nombre del punto intermedio opcional 1\", \"Nombre del punto intermedio opcional 2\"],\n"
+             "    \"destino\": \"Nombre del destino final\"\n"
+             "  }\n"
+             "}"
+            },
+            {"role": "user", "content": query}
+        ]
 
-    lc_messages = convert_openai_messages(extract_prompt)
-    response = ChatOpenAI(model='gpt-4', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
+        lc_messages = convert_openai_messages(extract_prompt)
+        response = ChatOpenAI(model='gpt-4', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
 
-    match = re.search(r"\{.*\}", response, re.DOTALL)
-    if match:
-        try:
-            extracted_data = json.loads(match.group(0))
-        except json.JSONDecodeError:
-            st.error("Error al decodificar JSON. Respuesta del modelo: " + response)
+        match = re.search(r"\{.*\}", response, re.DOTALL)
+        if match:
+            try:
+                extracted_data = json.loads(match.group(0))
+            except json.JSONDecodeError:
+                st.error("Error al decodificar JSON. Respuesta del modelo: " + response)
+                extracted_data = None
+        else:
+            st.error("No se encontró JSON en la respuesta del modelo.")
             extracted_data = None
-    else:
-        st.error("No se encontró JSON en la respuesta del modelo.")
-        extracted_data = None
 
-    if not extracted_data:
-        st.error("No se pudo extraer la información correctamente.")
-    else:
-        # Obtener coordenadas de los puntos
-        puntos = {"inicio": {}, "destino": {}, "intermedios": []}
+        if not extracted_data:
+            st.error("No se pudo extraer la información correctamente.")
+        else:
+            # Obtener coordenadas de los puntos
+            puntos = {"inicio": {}, "destino": {}, "intermedios": []}
 
-        puntos["inicio"]["nombre"] = extracted_data["lugares"]["inicio"]
-        puntos["inicio"]["lat"], puntos["inicio"]["lon"] = obtener_coordenadas(puntos["inicio"]["nombre"])
+            puntos["inicio"]["nombre"] = extracted_data["lugares"]["inicio"]
+            puntos["inicio"]["lat"], puntos["inicio"]["lon"] = obtener_coordenadas(puntos["inicio"]["nombre"])
 
-        puntos["destino"]["nombre"] = extracted_data["lugares"]["destino"]
-        puntos["destino"]["lat"], puntos["destino"]["lon"] = obtener_coordenadas(puntos["destino"]["nombre"])
+            puntos["destino"]["nombre"] = extracted_data["lugares"]["destino"]
+            puntos["destino"]["lat"], puntos["destino"]["lon"] = obtener_coordenadas(puntos["destino"]["nombre"])
 
-        if "intermedios" in extracted_data["lugares"] and extracted_data["lugares"]["intermedios"]:
-            for intermedio in extracted_data["lugares"]["intermedios"]:
-                lat, lon = obtener_coordenadas(intermedio)
-                if lat and lon:
-                    puntos["intermedios"].append({"nombre": intermedio, "lat": lat, "lon": lon})
+            if "intermedios" in extracted_data["lugares"] and extracted_data["lugares"]["intermedios"]:
+                for intermedio in extracted_data["lugares"]["intermedios"]:
+                    lat, lon = obtener_coordenadas(intermedio)
+                    if lat and lon:
+                        puntos["intermedios"].append({"nombre": intermedio, "lat": lat, "lon": lon})
 
-        # Calcular distancia y tiempo
-        distancia, tiempo_estimado = calcular_distancia_tiempo(puntos)
+            # Calcular distancia y tiempo
+            distancia, tiempo_estimado = calcular_distancia_tiempo(puntos)
 
-        # Obtener clima en los puntos clave
-        hora_salida = datetime.strptime(extracted_data["hora_salida"], "%Y-%m-%d %H:%M")
-        clima_inicio = obtener_clima(puntos["inicio"]["lat"], puntos["inicio"]["lon"], hora_salida)
-        clima_destino = obtener_clima(puntos["destino"]["lat"], puntos["destino"]["lon"], hora_salida + timedelta(hours=tiempo_estimado))
+            # Obtener clima en los puntos clave
+            hora_salida = datetime.strptime(extracted_data["hora_salida"], "%Y-%m-%d %H:%M")
+            climas = []
 
-        climas_intermedios = []
-        for i, punto in enumerate(puntos["intermedios"]):
-            tiempo_parcial = (i + 1) * (tiempo_estimado / (len(puntos["intermedios"]) + 1))
-            clima_intermedio = obtener_clima(punto["lat"], punto["lon"], hora_salida + timedelta(hours=tiempo_parcial))
-            climas_intermedios.append({"nombre": punto["nombre"], "clima": clima_intermedio})
+            # Clima en el inicio
+            clima_inicio = obtener_clima(puntos["inicio"]["lat"], puntos["inicio"]["lon"], hora_salida)
+            climas.append({"nombre": puntos["inicio"]["nombre"], "clima": clima_inicio})
 
-        # Mostrar resultados
-        st.success(f"🚴‍♂️ Distancia total: {distancia:.2f} km")
-        st.success(f"⏳ Tiempo estimado: {tiempo_estimado:.2f} horas")
-        st.success(f"🌤️ Clima en {puntos['inicio']['nombre']}: {clima_inicio}")
-        st.success(f"🌤️ Clima en {puntos['destino']['nombre']}: {clima_destino}")
-        for clima in climas_intermedios:
-            st.success(f"🌤️ Clima en {clima['nombre']}: {clima['clima']}")
+            # Clima en los puntos intermedios
+            for i, punto in enumerate(puntos["intermedios"]):
+                tiempo_parcial = (i + 1) * (tiempo_estimado / (len(puntos["intermedios"]) + 1))
+                clima_intermedio = obtener_clima(punto["lat"], punto["lon"], hora_salida + timedelta(hours=tiempo_parcial))
+                climas.append({"nombre": punto["nombre"], "clima": clima_intermedio})
+
+            # Clima en el destino
+            clima_destino = obtener_clima(puntos["destino"]["lat"], puntos["destino"]["lon"], hora_salida + timedelta(hours=tiempo_estimado))
+            climas.append({"nombre": puntos["destino"]["nombre"], "clima": clima_destino})
+
+            # Mostrar resultados de manera orgánica
+            st.success("### Resumen de la ruta:")
+            st.write(f"🚴‍♂️ **Distancia total:** {distancia:.2f} km")
+            st.write(f"⏳ **Tiempo estimado:** {tiempo_estimado:.2f} horas")
+            st.write("---")
+
+            st.write("### Clima en los puntos de la ruta:")
+            for clima in climas:
+                st.write(f"📍 **{clima['nombre']}:** {clima['clima']['condiciones']}, Temperatura: {clima['clima']['temperatura']}°C")
+            st.write("---")
+
+            # Generar y mostrar recomendación final
+            recomendacion = generar_recomendacion([c["clima"] for c in climas])
+            st.write("### Recomendación:")
+            st.info(recomendacion)
 
