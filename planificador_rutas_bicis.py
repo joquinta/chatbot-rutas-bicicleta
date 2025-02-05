@@ -93,11 +93,19 @@ if query:
         clima_inicio = obtener_clima(puntos["inicio"]["lat"], puntos["inicio"]["lon"], hora_salida)
         clima_destino = obtener_clima(puntos["destino"]["lat"], puntos["destino"]["lon"], hora_salida + timedelta(hours=tiempo_estimado))
 
+    climas_intermedios = []
+    for i, punto in enumerate(puntos["intermedios"]):
+    tiempo_parcial = (i + 1) * (tiempo_estimado / (len(puntos["intermedios"]) + 1))
+    clima_intermedio = obtener_clima(punto["lat"], punto["lon"], hora_salida + timedelta(hours=tiempo_parcial))
+    climas_intermedios.append({"nombre": punto["nombre"], "clima": clima_intermedio})
+    
         st.write(f"**Distancia:** {distancia:.2f} km")
         st.write(f"**Tiempo estimado:** {tiempo_estimado:.2f} horas")
         st.write(f"🌤️ **Clima en {puntos['inicio']['nombre']}:** {clima_inicio}")
         st.write(f"🌤️ **Clima en {puntos['destino']['nombre']}:** {clima_destino}")
-
+        for clima in climas_intermedios:
+        print(f"🌤️ Clima en {clima['nombre']}: {clima['clima']}")
+    
         # Generar PDF
         pdf = FPDF()
         pdf.add_page()
