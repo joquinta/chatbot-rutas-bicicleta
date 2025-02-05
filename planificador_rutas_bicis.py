@@ -107,18 +107,17 @@ st.write(f"🌤️ **Clima en {puntos['destino']['nombre']}:** {clima_destino}")
 for clima in climas_intermedios:
     st.write(f"🌤️ Clima en {clima['nombre']}: {clima['clima']}")
 
-    
-        # Generar PDF
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial", size=12)
-        pdf.cell(200, 10, "Resumen de Ruta", ln=True, align='C')
-        pdf.cell(200, 10, f"Distancia: {distancia:.2f} km", ln=True)
-        pdf.cell(200, 10, f"Tiempo estimado: {tiempo_estimado:.2f} horas", ln=True)
-        pdf.cell(200, 10, f"Clima en {puntos['inicio']['nombre']}: {clima_inicio}", ln=True)
-        pdf.cell(200, 10, f"Clima en {puntos['destino']['nombre']}: {clima_destino}", ln=True)
+# Generar PDF después de listar la información
+pdf = FPDF()
+pdf.add_page()
+pdf.set_font("Arial", size=12)
+pdf.cell(200, 10, "Resumen de Ruta", ln=True, align='C')
+pdf.cell(200, 10, f"Distancia: {distancia:.2f} km", ln=True)
+pdf.cell(200, 10, f"Tiempo estimado: {tiempo_estimado:.2f} horas", ln=True)
+pdf.cell(200, 10, f"Clima en {puntos['inicio']['nombre']}: {clima_inicio}", ln=True)
+pdf.cell(200, 10, f"Clima en {puntos['destino']['nombre']}: {clima_destino}", ln=True)
 
-        pdf_filename = "resumen_ruta.pdf"
-        pdf.output(pdf_filename)
-        with open(pdf_filename, "rb") as file:
-            st.download_button("Descargar resumen en PDF", file, file_name="resumen_ruta.pdf", mime="application/pdf")
+pdf_filename = "resumen_ruta.pdf"
+pdf.output(pdf_filename)
+with open(pdf_filename, "rb") as file:
+    st.download_button("Descargar resumen en PDF", file, file_name="resumen_ruta.pdf", mime="application/pdf")
