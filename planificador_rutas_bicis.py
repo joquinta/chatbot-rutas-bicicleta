@@ -121,3 +121,4 @@ pdf_filename = "resumen_ruta.pdf"
 pdf.output(pdf_filename)
 with open(pdf_filename, "rb") as file:
     st.download_button("Descargar resumen en PDF", file, file_name="resumen_ruta.pdf", mime="application/pdf")
+
