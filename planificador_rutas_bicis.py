@@ -83,10 +83,11 @@ if query:
         puntos["destino"]["nombre"] = extracted_data["lugares"]["destino"]
         puntos["destino"]["lat"], puntos["destino"]["lon"] = obtener_coordenadas(puntos["destino"]["nombre"])
 
-        for intermedio in extracted_data["lugares"].get("intermedios", []):
-            lat, lon = obtener_coordenadas(intermedio)
-            if lat and lon:
-                puntos["intermedios"].append({"nombre": intermedio, "lat": lat, "lon": lon})
+for intermedio in extracted_data["lugares"].get("intermedios", []):
+    lat, lon = obtener_coordenadas(intermedio)
+    if lat and lon:
+        puntos["intermedios"].append({"nombre": intermedio, "lat": lat, "lon": lon})
+
 
         distancia, tiempo_estimado = calcular_distancia_tiempo(puntos)
         hora_salida = datetime.strptime(extracted_data["hora_salida"], "%Y-%m-%d %H:%M")
