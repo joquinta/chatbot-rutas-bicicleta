@@ -14,55 +14,115 @@ import requests
 import re
 from langchain.adapters.openai import convert_openai_messages
 from langchain_community.chat_models import ChatOpenAI
+import os
+from dotenv import load_dotenv
 
-# Claves API (debes definirlas)
-OWM_API_KEY = st.secrets["OWM_API_KEY"]
-ORS_API_KEY = st.secrets["ORS_API_KEY"]
-OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
+# Cargar variables de entorno
+load_dotenv()
 
-# Funciones ya definidas: obtener_coordenadas, calcular_distancia_tiempo, obtener_clima
+# Claves API (definidas en .env o en la configuración de Streamlit)
+OWM_API_KEY = os.getenv("OWM_API_KEY")
+ORS_API_KEY = os.getenv("ORS_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-def main():
-    st.title('Planificador de Rutas en Bicicleta')
+# Función para obtener latitud y longitud con OpenWeatherMap Geocoding API
+def obtener_coordenadas(lugar):
+    url = f"http://api.openweathermap.org/geo/1.0/direct?q={lugar}&limit=1&appid={OWM_API_KEY}"
+    respuesta = requests.get(url).json()
     
-    # Entrada del usuario
-    query = st.text_input("Ingresa tu ruta de bicicleta:", 
-                          "Saldre a pedalear el 8 de febrero del 2025 a las 8:00 desde osorno,cl, pasando por la san pablo,cl, la unión,cl y valdivia,cl.")
+    if not respuesta:
+        st.warning(f"No se encontraron coordenadas para {lugar}.")
+        return None, None
     
-    if st.button("Calcular Ruta"):
-        # Paso 2: Extraer información clave con OpenAI
-        extract_prompt = [
-            {"role": "system", "content": "Extrae los siguientes datos en **JSON puro**, sin explicaciones:\n"
-                                         "{\n"
-                                         "  \"hora_salida\": \"YYYY-MM-DD HH:MM\",\n"
-                                         "  \"lugares\": {\n"
-                                         "    \"inicio\": \"Nombre del lugar de inicio\",\n"
-                                         "    \"intermedios\": [\"Nombre del punto intermedio opcional 1\", \"Nombre del punto intermedio opcional 2\"],\n"
-                                         "    \"destino\": \"Nombre del destino final\"\n"
-                                         "  }\n"
-                                         "}"},
-            {"role": "user", "content": query}
-        ]
-        
-        lc_messages = convert_openai_messages(extract_prompt)
-        response = ChatOpenAI(model='gpt-4o-mini', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
-        
-        match = re.search(r"\{.*\}", response, re.DOTALL)
-        if match:
-            try:
-                extracted_data = json.loads(match.group(0))
-            except json.JSONDecodeError:
-                st.error("Error al decodificar JSON. Respuesta del modelo.")
-                extracted_data = None
-        else:
-            st.error("No se encontró JSON en la respuesta del modelo.")
+    return respuesta[0]["lat"], respuesta[0]["lon"]
+
+# Función para obtener la distancia y el tiempo estimado con OpenRouteService
+def calcular_distancia_tiempo(puntos):
+    coords = [[puntos["inicio"]["lon"], puntos["inicio"]["lat"]]]
+
+    if "intermedios" in puntos and puntos["intermedios"]:
+        for intermedio in puntos["intermedios"]:
+            coords.append([intermedio["lon"], intermedio["lat"]])
+
+    coords.append([puntos["destino"]["lon"], puntos["destino"]["lat"]])
+
+    url = "https://api.openrouteservice.org/v2/directions/cycling-regular"
+    headers = {"Authorization": ORS_API_KEY, "Content-Type": "application/json"}
+    data = {"coordinates": coords, "format": "json"}
+
+    respuesta = requests.post(url, headers=headers, json=data).json()
+    
+    if "routes" not in respuesta:
+        st.error("Error en la API de OpenRouteService.")
+        return None, None
+    
+    distancia_total = respuesta["routes"][0]["summary"]["distance"] / 1000  # Convertir a km
+    tiempo_total = respuesta["routes"][0]["summary"]["duration"] / 3600  # Convertir a horas
+
+    return distancia_total, tiempo_total
+
+# Función para obtener el clima con OpenWeatherMap, eligiendo la hora más cercana hacia arriba
+def obtener_clima(lat, lon, fecha_hora):
+    url = f"https://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lon}&appid={OWM_API_KEY}&units=metric&lang=es"
+    respuesta = requests.get(url).json()
+
+    if respuesta.get("cod") != "200":
+        return {"temperatura": "N/A", "condiciones": "No disponible"}
+
+    # Filtrar solo pronósticos con timestamps en el futuro (hacia arriba)
+    predicciones_futuras = [p for p in respuesta["list"] if datetime.utcfromtimestamp(p["dt"]) >= fecha_hora]
+
+    if not predicciones_futuras:
+        return {"temperatura": "N/A", "condiciones": "No disponible"}
+
+    mejor_prediccion = min(predicciones_futuras, key=lambda x: datetime.utcfromtimestamp(x["dt"]))
+
+    return {
+        "temperatura": f"{mejor_prediccion['main']['temp']}°C",
+        "condiciones": mejor_prediccion["weather"][0]["description"].capitalize()
+    }
+
+# Interfaz de Streamlit
+st.title("Planificador de Rutas de Bicicleta en Chile 🚴‍♂️")
+
+query = st.text_input("Ingresa tu ruta:", "Saldre a pedalear el 8 de febrero del 2025 a las 8:00 desde osorno,cl, pasando por la san pablo,cl, la unión,cl y valdivia,cl.")
+
+if st.button("Planificar Ruta"):
+    # Paso 2: Extraer información clave con OpenAI
+    extract_prompt = [
+        {"role": "system", "content": "Extrae los siguientes datos en **JSON puro**, sin explicaciones:\n"
+         "{\n"
+         "  \"hora_salida\": \"YYYY-MM-DD HH:MM\",\n"
+         "  \"lugares\": {\n"
+         "    \"inicio\": \"Nombre del lugar de inicio\",\n"
+         "    \"intermedios\": [\"Nombre del punto intermedio opcional 1\", \"Nombre del punto intermedio opcional 2\"],\n"
+         "    \"destino\": \"Nombre del destino final\"\n"
+         "  }\n"
+         "}"
+        },
+        {"role": "user", "content": query}
+    ]
+
+    lc_messages = convert_openai_messages(extract_prompt)
+    response = ChatOpenAI(model='gpt-4', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
+
+    match = re.search(r"\{.*\}", response, re.DOTALL)
+    if match:
+        try:
+            extracted_data = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            st.error("Error al decodificar JSON. Respuesta del modelo: " + response)
             extracted_data = None
+    else:
+        st.error("No se encontró JSON en la respuesta del modelo.")
+        extracted_data = None
 
-        if not extracted_data:
-            return
-
+    if not extracted_data:
+        st.error("No se pudo extraer la información correctamente.")
+    else:
         # Obtener coordenadas de los puntos
         puntos = {"inicio": {}, "destino": {}, "intermedios": []}
+
         puntos["inicio"]["nombre"] = extracted_data["lugares"]["inicio"]
         puntos["inicio"]["lat"], puntos["inicio"]["lon"] = obtener_coordenadas(puntos["inicio"]["nombre"])
 
@@ -89,14 +149,11 @@ def main():
             clima_intermedio = obtener_clima(punto["lat"], punto["lon"], hora_salida + timedelta(hours=tiempo_parcial))
             climas_intermedios.append({"nombre": punto["nombre"], "clima": clima_intermedio})
 
-        # Mostrar resultados en Streamlit
-        st.write(f"🚴‍♂️ **Distancia total**: {distancia:.2f} km")
-        st.write(f"⏳ **Tiempo estimado**: {tiempo_estimado:.2f} horas")
-        st.write(f"🌤️ **Clima en {puntos['inicio']['nombre']}**: {clima_inicio}")
-        st.write(f"🌤️ **Clima en {puntos['destino']['nombre']}**: {clima_destino}")
+        # Mostrar resultados
+        st.success(f"🚴‍♂️ Distancia total: {distancia:.2f} km")
+        st.success(f"⏳ Tiempo estimado: {tiempo_estimado:.2f} horas")
+        st.success(f"🌤️ Clima en {puntos['inicio']['nombre']}: {clima_inicio}")
+        st.success(f"🌤️ Clima en {puntos['destino']['nombre']}: {clima_destino}")
         for clima in climas_intermedios:
-            st.write(f"🌤️ **Clima en {clima['nombre']}**: {clima['clima']}")
-
-if __name__ == "__main__":
-    main()
+            st.success(f"🌤️ Clima en {clima['nombre']}: {clima['clima']}")
 
