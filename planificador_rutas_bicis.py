@@ -103,7 +103,7 @@ for i, punto in enumerate(puntos["intermedios"]):
         st.write(f"**Tiempo estimado:** {tiempo_estimado:.2f} horas")
         st.write(f"🌤️ **Clima en {puntos['inicio']['nombre']}:** {clima_inicio}")
         st.write(f"🌤️ **Clima en {puntos['destino']['nombre']}:** {clima_destino}")
-    for clima in climas_intermedios:
+        for clima in climas_intermedios:
         print(f"🌤️ Clima en {clima['nombre']}: {clima['clima']}")
     
         # Generar PDF
