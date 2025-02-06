@@ -256,7 +256,7 @@ if query:
     st.write(f"Fecha de consulta a la API OpenWeather: {fecha_inicio_api.strftime('%Y-%m-%d')}")  # Mostrar la fecha usada
     st.write(f"🚴‍♂️ **Distancia total:** {st.session_state['distancia']:.2f} km")
     st.write(f"⏳ **Tiempo estimado:** {st.session_state['tiempo_estimado']:.2f} horas")
-    st.write(f"**Rango desnivel estimado:** {rango_minimo} - {rango_maximo} metros")
+    st.write(f"📈 **Rango desnivel estimado:** {rango_minimo} - {rango_maximo} metros")
     st.write("---")
 
     st.write("### Clima en los puntos de la ruta:")
