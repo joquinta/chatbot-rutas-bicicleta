@@ -103,10 +103,10 @@ def generar_recomendacion_con_llm(climas):
 
     # Crear el prompt para el LLM
     prompt = [
-        {"role": "system", "content": "Eres un experto en ciclismo de nivel avanzado. Genera una recomendación breve y concisa, enfocada en la ropa y la alimentación, basándote en las condiciones climáticas del viaje."},
+        {"role": "system", "content": "Eres un experto en ciclismo de nivel avanzado. Genera una recomendación breve de la ropa requerida según el clima (tricota, chaqueta, calza larga o corta, manguillas y pierneras) y accesorios como llaves y camara de repuesto. Ademas, si la salida es larga recomendar una cantidad de geles y carbohidratos por hora."},
         {"role": "user", "content": f"Datos del clima en los puntos de la ruta:\n"
                                     f"{resumen_clima}\n\n"
-                                    f"Por favor, genera una recomendación breve y experta enfocada en la ropa y la alimentación más adecuada para las condiciones climáticas del viaje. Usa un formato de checklist. "}
+                                    f"Por favor, genera una recomendación breve y experta enfocada en la ropa, alimentación y accesorios más adecuada para las condiciones climáticas del viaje. Usa un formato de checklist. "}
     ]
 
     # Convertir el prompt y obtener la respuesta del LLM
@@ -117,6 +117,7 @@ def generar_recomendacion_con_llm(climas):
 
 # Interfaz de Streamlit
 st.title("Planificador de Rutas de Bicicleta en Chile 🚴‍♂️")
+st.subheader("Pronóstico máximo a 7 días")
 
 # Campo de entrada sin mensaje precargado
 query = st.text_input("Ingresa tu ruta:", placeholder="Ej: Saldré a pedalear el 8 de febrero del 2025 a las 8:00 desde providencia a farellones, volviendo a providencia", key="input")
