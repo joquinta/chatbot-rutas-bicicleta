@@ -110,7 +110,7 @@ def generar_recomendacion_con_llm(climas):
 
     # Convertir el prompt y obtener la respuesta del LLM
     lc_messages = convert_openai_messages(prompt)
-    response = ChatOpenAI(model='gpt-4', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
+    response = ChatOpenAI(model='gpt-4o-mini', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
 
     return response
 
@@ -151,7 +151,7 @@ def extraer_datos(query):
     ]
 
     lc_messages = convert_openai_messages(extract_prompt)
-    response = ChatOpenAI(model='gpt-4o-mini', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
+    response = ChatOpenAI(model='gpt-4', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
 
     match = re.search(r"\{.*\}", response, re.DOTALL)
     if match:
@@ -169,86 +169,98 @@ def extraer_datos(query):
 if query:
     st.session_state['extracted_data'] = extraer_datos(query)
 
-    if st.session_state['extracted_data']:
-        # Obtener coordenadas de los puntos
-        if not st.session_state['puntos']['inicio'].get('nombre'):
-            st.session_state['puntos']['inicio']['nombre'] = st.session_state['extracted_data']['lugares']['inicio']
-            st.session_state['puntos']['inicio']['lat'], st.session_state['puntos']['inicio']['lon'] = obtener_coordenadas(st.session_state['puntos']['inicio']['nombre'])
-
-        if not st.session_state['puntos']['destino'].get('nombre'):
-            st.session_state['puntos']['destino']['nombre'] = st.session_state['extracted_data']['lugares']['destino']
-            st.session_state['puntos']['destino']['lat'], st.session_state['puntos']['destino']['lon'] = obtener_coordenadas(st.session_state['puntos']['destino']['nombre'])
-
-        if "intermedios" in st.session_state['extracted_data']['lugares'] and st.session_state['extracted_data']['lugares']['intermedios']:
-            for intermedio in st.session_state['extracted_data']['lugares']['intermedios']:
-                if not any(p['nombre'] == intermedio for p in st.session_state['puntos']['intermedios']):
-                    lat, lon = obtener_coordenadas(intermedio)
-                    if lat and lon:
-                        st.session_state['puntos']['intermedios'].append({"nombre": intermedio, "lat": lat, "lon": lon})
-
-        # Calcular distancia y tiempo
-        if not st.session_state['distancia'] or not st.session_state['tiempo_estimado']:
-            st.session_state['distancia'], st.session_state['tiempo_estimado'] = calcular_distancia_tiempo(st.session_state['puntos'])
-
-        # Obtener clima en los puntos clave
-        if not st.session_state['hora_salida']:
-            try:
-                st.session_state['hora_salida'] = datetime.strptime(st.session_state['extracted_data']["hora_salida"], "%Y-%m-%d %H:%M")
-            except ValueError:
-                st.error("Formato de fecha incorrecto.  Asegúrate de usar YYYY-MM-DD HH:MM")
-                st.stop()
-
-        # Forzar año 2025
-        st.session_state['hora_salida'] = st.session_state['hora_salida'].replace(year=2025)
-
-        st.session_state['climas'] = []
-
-        # Clima en el inicio
-        clima_inicio, fecha_inicio_api = obtener_clima(st.session_state['puntos']['inicio']['lat'], st.session_state['puntos']['inicio']['lon'], st.session_state['hora_salida'])
-        st.session_state['climas'].append({"nombre": st.session_state['puntos']['inicio']['nombre'], "clima": clima_inicio, "hora_estimada": st.session_state['hora_salida']})
-
-        # Clima en los puntos intermedios
-        for i, punto in enumerate(st.session_state['puntos']['intermedios']):
-            tiempo_parcial = (i + 1) * (st.session_state['tiempo_estimado'] / (len(st.session_state['puntos']['intermedios']) + 1))
-            hora_estimada = st.session_state['hora_salida'] + timedelta(hours=tiempo_parcial)
-
-            # Forzar año 2025
-            hora_estimada = hora_estimada.replace(year=2025)
-
-            clima_intermedio, fecha_intermedio_api = obtener_clima(punto['lat'], punto['lon'], hora_estimada)
-            st.session_state['climas'].append({"nombre": punto['nombre'], "clima": clima_intermedio, "hora_estimada": hora_estimada})
-
-        # Clima en el destino
-        hora_destino = st.session_state['hora_salida'] + timedelta(hours=st.session_state['tiempo_estimado'])
-
-        # Forzar año 2025
-        hora_destino = hora_destino.replace(year=2025)
-
-        clima_destino, fecha_destino_api = obtener_clima(st.session_state['puntos']['destino']['lat'], st.session_state['puntos']['destino']['lon'], hora_destino)
-        st.session_state['climas'].append({"nombre": st.session_state['puntos']['destino']['nombre'], "clima": clima_destino, "hora_estimada": hora_destino})
-
-        # Mostrar resultados de manera orgánica
-        st.success("### Resumen de la ruta:")
-        st.write(f"Fecha de consulta a la API OpenWeather: {fecha_inicio_api.strftime('%Y-%m-%d')}")  # Mostrar la fecha usada
-        st.write(f"🚴‍♂️ **Distancia total:** {st.session_state['distancia']:.2f} km")
-        st.write(f"⏳ **Tiempo estimado:** {st.session_state['tiempo_estimado']:.2f} horas")
-        st.write("---")
-
-        st.write("### Clima en los puntos de la ruta:")
-        for clima in st.session_state['climas']:
-            st.write(
-                f"📍 **{clima['nombre']}** ({clima['hora_estimada'].strftime('%H:%M')}): "
-                f"{clima['clima']['condiciones']}, Temperatura: {clima['clima']['temperatura']}°C, "
-                f"Viento: {clima['clima']['viento']} km/h"
-            )
-        st.write("---")
-
-        # Generar y mostrar recomendación final usando el LLM
-        recomendacion = generar_recomendacion_con_llm(st.session_state['climas'])
-        st.write("### Recomendación Técnica (Ropa y Alimentación):")
-        st.info(recomendacion)
-
-    else:
-        # Si no se pudieron extraer los datos inicialmente, mostrar un mensaje
+    if not st.session_state['extracted_data']:
         st.info("Por favor, proporciona más detalles sobre tu ruta (fecha, hora, puntos de inicio/fin).")
+        st.stop() # Detiene la ejecución si no hay datos extraídos
+
+    # Verificar si la hora de salida está presente
+    if 'hora_salida' not in st.session_state['extracted_data'] or not st.session_state['extracted_data']['hora_salida']:
+        st.info("Por favor, especifica la hora de salida en tu ruta.")
+        st.stop()
+
+    # Obtener coordenadas de los puntos
+    if not st.session_state['puntos']['inicio'].get('nombre'):
+        if 'inicio' not in st.session_state['extracted_data']['lugares']:
+             st.info("Por favor, especifica el punto de inicio de tu ruta.")
+             st.stop()
+
+        st.session_state['puntos']['inicio']['nombre'] = st.session_state['extracted_data']['lugares']['inicio']
+        st.session_state['puntos']['inicio']['lat'], st.session_state['puntos']['inicio']['lon'] = obtener_coordenadas(st.session_state['puntos']['inicio']['nombre'])
+
+    if not st.session_state['puntos']['destino'].get('nombre'):
+        if 'destino' not in st.session_state['extracted_data']['lugares']:
+             st.info("Por favor, especifica el destino de tu ruta.")
+             st.stop()
+
+        st.session_state['puntos']['destino']['nombre'] = st.session_state['extracted_data']['lugares']['destino']
+        st.session_state['puntos']['destino']['lat'], st.session_state['puntos']['destino']['lon'] = obtener_coordenadas(st.session_state['puntos']['destino']['nombre'])
+
+    if "intermedios" in st.session_state['extracted_data']['lugares'] and st.session_state['extracted_data']['lugares']['intermedios']:
+        for intermedio in st.session_state['extracted_data']['lugares']['intermedios']:
+            if not any(p['nombre'] == intermedio for p in st.session_state['puntos']['intermedios']):
+                lat, lon = obtener_coordenadas(intermedio)
+                if lat and lon:
+                    st.session_state['puntos']['intermedios'].append({"nombre": intermedio, "lat": lat, "lon": lon})
+
+    # Calcular distancia y tiempo
+    if not st.session_state['distancia'] or not st.session_state['tiempo_estimado']:
+        st.session_state['distancia'], st.session_state['tiempo_estimado'] = calcular_distancia_tiempo(st.session_state['puntos'])
+
+    # Obtener clima en los puntos clave
+    if not st.session_state['hora_salida']:
+        try:
+            st.session_state['hora_salida'] = datetime.strptime(st.session_state['extracted_data']["hora_salida"], "%Y-%m-%d %H:%M")
+        except ValueError:
+            st.info("Formato de fecha/hora incorrecto. Asegúrate de usar YYYY-MM-DD HH:MM.")
+            st.stop()
+
+    # Forzar año 2025
+    st.session_state['hora_salida'] = st.session_state['hora_salida'].replace(year=2025)
+
+    st.session_state['climas'] = []
+
+    # Clima en el inicio
+    clima_inicio, fecha_inicio_api = obtener_clima(st.session_state['puntos']['inicio']['lat'], st.session_state['puntos']['inicio']['lon'], st.session_state['hora_salida'])
+    st.session_state['climas'].append({"nombre": st.session_state['puntos']['inicio']['nombre'], "clima": clima_inicio, "hora_estimada": st.session_state['hora_salida']})
+
+    # Clima en los puntos intermedios
+    for i, punto in enumerate(st.session_state['puntos']['intermedios']):
+        tiempo_parcial = (i + 1) * (st.session_state['tiempo_estimado'] / (len(st.session_state['puntos']['intermedios']) + 1))
+        hora_estimada = st.session_state['hora_salida'] + timedelta(hours=tiempo_parcial)
+
+        # Forzar año 2025
+        hora_estimada = hora_estimada.replace(year=2025)
+
+        clima_intermedio, fecha_intermedio_api = obtener_clima(punto['lat'], punto['lon'], hora_estimada)
+        st.session_state['climas'].append({"nombre": punto['nombre'], "clima": clima_intermedio, "hora_estimada": hora_estimada})
+
+    # Clima en el destino
+    hora_destino = st.session_state['hora_salida'] + timedelta(hours=st.session_state['tiempo_estimado'])
+
+    # Forzar año 2025
+    hora_destino = hora_destino.replace(year=2025)
+
+    clima_destino, fecha_destino_api = obtener_clima(st.session_state['puntos']['destino']['lat'], st.session_state['puntos']['destino']['lon'], hora_destino)
+    st.session_state['climas'].append({"nombre": st.session_state['puntos']['destino']['nombre'], "clima": clima_destino, "hora_estimada": hora_destino})
+
+    # Mostrar resultados de manera orgánica
+    st.success("### Resumen de la ruta:")
+    st.write(f"Fecha de consulta a la API OpenWeather: {fecha_inicio_api.strftime('%Y-%m-%d')}")  # Mostrar la fecha usada
+    st.write(f"🚴‍♂️ **Distancia total:** {st.session_state['distancia']:.2f} km")
+    st.write(f"⏳ **Tiempo estimado:** {st.session_state['tiempo_estimado']:.2f} horas")
+    st.write("---")
+
+    st.write("### Clima en los puntos de la ruta:")
+    for clima in st.session_state['climas']:
+        st.write(
+            f"📍 **{clima['nombre']}** ({clima['hora_estimada'].strftime('%H:%M')}): "
+            f"{clima['clima']['condiciones']}, Temperatura: {clima['clima']['temperatura']}°C, "
+            f"Viento: {clima['clima']['viento']} km/h"
+        )
+    st.write("---")
+
+    # Generar y mostrar recomendación final usando el LLM
+    recomendacion = generar_recomendacion_con_llm(st.session_state['climas'])
+    st.write("### Recomendación Técnica (Ropa y Alimentación):")
+    st.info(recomendacion)
 
