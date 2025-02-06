@@ -139,10 +139,17 @@ def mostrar_mapa(puntos, ruta_geometry):
     m = folium.Map(location=[centro_lat, centro_lon], zoom_start=10)
 
     # Decodificar la geometría de la ruta (polyline)
-    print("ruta_geometry:", ruta_geometry)  # Imprime la cadena de la ruta
-    print("tipo de ruta_geometry:", type(ruta_geometry)) # Imprime el tipo de dato
+    print("ruta_geometry:", ruta_geometry)
+    print("ruta_geometry (raw):", repr(ruta_geometry))
+    print("tipo de ruta_geometry:", type(ruta_geometry))
+    print("longitud de ruta_geometry:", len(ruta_geometry))
     if ruta_geometry:
+
+        print("primeros 10 caracteres:", ruta_geometry[:10])
+        print("últimos 10 caracteres:", ruta_geometry[-10:])
         try:
+            ruta_geometry = ruta_geometry.strip()
+            ruta_geometry = ruta_geometry.encode('utf-8').decode('utf-8')
             decoded_route = folium.PolyLine(locations=polyline.decode(ruta_geometry), color="blue", weight=2.5, opacity=1).add_to(m)
         except Exception as e:
             st.error(f"Error al decodificar la geometría de la ruta: {e}")
