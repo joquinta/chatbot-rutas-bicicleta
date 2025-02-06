@@ -63,18 +63,30 @@ def calcular_distancia_tiempo(puntos):
         respuesta = requests.post(url, headers=headers, json=data).json()
     except requests.exceptions.RequestException as e:
         st.error(f"Error al conectar con la API de OpenRouteService: {e}")
-        return None, None, None, None
+        return None, None, None, None, None
 
     if "routes" not in respuesta:
         st.error("Error en la API de OpenRouteService: " + str(respuesta.get("error", "Error desconocido")))
-        return None, None, None, None
+        return None, None, None, None, None
 
     distancia_total = respuesta["routes"][0]["summary"]["distance"] / 1000  # Convertir a km
     tiempo_total = respuesta["routes"][0]["summary"]["duration"] / 3600  # Convertir a horas
     desnivel_positivo = respuesta["routes"][0]["summary"].get("ascent")  # Obtener el desnivel positivo
     desnivel_negativo = respuesta["routes"][0]["summary"].get("descent")  # Obtener el desnivel negativo
 
-    return distancia_total, tiempo_total, desnivel_positivo, desnivel_negativo
+    # Extraer las elevaciones de la ruta
+    elevaciones = [feature["geometry"]["coordinates"][2] for feature in respuesta["routes"][0]["segments"][0]["steps"]]
+
+    return distancia_total, tiempo_total, desnivel_positivo, desnivel_negativo, elevaciones
+
+# Función para estimar el desnivel negativo acumulado a partir de las elevaciones
+def estimar_desnivel_negativo(elevaciones):
+    desnivel_negativo_estimado = 0
+    for i in range(len(elevaciones) - 1):
+        diferencia_elevacion = elevaciones[i+1] - elevaciones[i]
+        if diferencia_elevacion < 0:
+            desnivel_negativo_estimado += diferencia_elevacion
+    return abs(desnivel_negativo_estimado)  # Retornar valor absoluto
 
 # Función para obtener el clima con OpenWeatherMap, eligiendo la hora más cercana hacia arriba
 def obtener_clima(lat, lon, fecha_hora):
@@ -150,6 +162,11 @@ if 'desnivel_negativo' not in st.session_state:
     st.session_state['desnivel_negativo'] = None
 if 'climas' not in st.session_state:
     st.session_state['climas'] = []
+if 'elevaciones' not in st.session_state:
+    st.session_state['elevaciones'] = []
+if 'desnivel_negativo_estimado' not in st.session_state:
+    st.session_state['desnivel_negativo_estimado'] = None
+
 
 # Función para extraer datos con el LLM
 def extraer_datos(query):
@@ -230,11 +247,18 @@ if query:
     (st.session_state['distancia'],
      st.session_state['tiempo_estimado'],
      st.session_state['desnivel_positivo'],
-     st.session_state['desnivel_negativo']) = calcular_distancia_tiempo(st.session_state['puntos'])
+     st.session_state['desnivel_negativo'],
+     st.session_state['elevaciones']) = calcular_distancia_tiempo(st.session_state['puntos'])
 
     # Verificar si calcular_distancia_tiempo devolvió None
     if st.session_state['distancia'] is None:
         st.stop()  # Detener la ejecución si hubo un error
+
+    # Estimar el desnivel negativo
+    if st.session_state['elevaciones']:
+        st.session_state['desnivel_negativo_estimado'] = estimar_desnivel_negativo(st.session_state['elevaciones'])
+    else:
+        st.session_state['desnivel_negativo_estimado'] = None
 
     # Obtener clima en los puntos clave
     # Forzar año 2025
@@ -274,9 +298,14 @@ if query:
 
     # Mostrar el desnivel si está disponible
     if st.session_state['desnivel_positivo'] is not None:
-        st.write(f"⛰️ **Desnivel positivo:** {st.session_state['desnivel_positivo']:.2f} metros")
+        st.write(f"⛰️ **Desnivel positivo (API):** {st.session_state['desnivel_positivo']:.2f} metros")
     if st.session_state['desnivel_negativo'] is not None:
-        st.write(f"📉 **Desnivel negativo:** {st.session_state['desnivel_negativo']:.2f} metros")
+        st.write(f"📉 **Desnivel negativo (API):** {st.session_state['desnivel_negativo']:.2f} metros")
+
+    if st.session_state['desnivel_negativo_estimado'] is not None:
+        st.write(f"📉 **Desnivel negativo (Estimado):** {st.session_state['desnivel_negativo_estimado']:.2f} metros")
+    else:
+        st.write("📉 **Desnivel negativo (Estimado):** No disponible")
 
     st.write("---")
 
