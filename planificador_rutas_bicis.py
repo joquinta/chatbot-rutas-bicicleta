@@ -49,61 +49,19 @@ def calcular_distancia_tiempo(puntos):
     coords.append([puntos["destino"]["lon"], puntos["destino"]["lat"]])
 
     url = "https://api.openrouteservice.org/v2/directions/cycling-regular"
-    headers = {
-        "Authorization": ORS_API_KEY,
-        "Content-Type": "application/json"
-    }
-    data = {
-        "coordinates": coords,
-        "format": "json",
-        "elevation": True,
-        "instructions": False  # Para simplificar la respuesta
-    }  # Habilitar la elevación en la solicitud
+    headers = {"Authorization": ORS_API_KEY, "Content-Type": "application/json"}
+    data = {"coordinates": coords, "format": "json"}
 
-    try:
-        respuesta = requests.post(url, headers=headers, json=data).json()
-        # st.write("Respuesta completa de ORS:", respuesta)  # Para depuración
-    except requests.exceptions.RequestException as e:
-        st.error(f"Error al conectar con la API de OpenRouteService: {e}")
-        return None, None, None, None, [], []
+    respuesta = requests.post(url, headers=headers, json=data).json()
 
     if "routes" not in respuesta:
-        st.error("Error en la API de OpenRouteService: " + str(respuesta.get("error", "Error desconocido")))
-        return None, None, None, None, [], []
+        st.error("Error en la API de OpenRouteService.")
+        return None, None
 
     distancia_total = respuesta["routes"][0]["summary"]["distance"] / 1000  # Convertir a km
     tiempo_total = respuesta["routes"][0]["summary"]["duration"] / 3600  # Convertir a horas
-    desnivel_positivo = respuesta["routes"][0]["summary"].get("ascent")  # Obtener el desnivel positivo de la API
-    desnivel_negativo = respuesta["routes"][0]["summary"].get("descent")  # Obtener el desnivel negativo de la API
 
-    # Extraer las elevaciones de la ruta
-    elevaciones = []
-    coordenadas = []
-    try:
-        for segment in respuesta["routes"][0]["segments"]:
-            for step in segment["steps"]:
-                coordenadas.extend(step["geometry"]["coordinates"])  # Extraer todas las coordenadas
-                #Se extraen las elevaciones de la ruta
-                # elevaciones = [coord[2] for coord in coordenadas]  # Extraer las elevaciones
-        elevaciones = [coord[2] for coord in coordenadas if len(coord) > 2]  # Extraer las elevaciones
-                # elevaciones.extend([coord[2] for coord in step["geometry"]["coordinates"] if len(coord) > 2])  # Extraer las elevaciones
-        # elevaciones = [feature["geometry"]["coordinates"][2] for feature in respuesta["routes"][0]["segments"][0]["steps"]]
-    except (KeyError, IndexError, TypeError) as e:
-        st.warning(f"Error al extraer datos de elevación: {e}.  Es posible que la API no esté proporcionando datos de elevación completos para esta ruta.")
-        elevaciones = []  # Devuelve una lista vacía en caso de error severo
-
-    # Calcular el desnivel positivo y negativo manualmente a partir de las elevaciones
-    desnivel_positivo_manual = 0
-    desnivel_negativo_manual = 0
-    for i in range(len(elevaciones) - 1):
-        diferencia = elevaciones[i+1] - elevaciones[i]
-        if diferencia > 0:
-            desnivel_positivo_manual += diferencia
-        elif diferencia < 0:
-            desnivel_negativo_manual += abs(diferencia)
-
-    return distancia_total, tiempo_total, desnivel_positivo, desnivel_negativo, elevaciones, [desnivel_positivo_manual, desnivel_negativo_manual]
-
+    return distancia_total, tiempo_total
 
 # Función para obtener el clima con OpenWeatherMap, eligiendo la hora más cercana hacia arriba
 def obtener_clima(lat, lon, fecha_hora):
@@ -173,17 +131,8 @@ if 'distancia' not in st.session_state:
     st.session_state['distancia'] = None
 if 'tiempo_estimado' not in st.session_state:
     st.session_state['tiempo_estimado'] = None
-if 'desnivel_positivo' not in st.session_state:
-    st.session_state['desnivel_positivo'] = None
-if 'desnivel_negativo' not in st.session_state:
-    st.session_state['desnivel_negativo'] = None
 if 'climas' not in st.session_state:
     st.session_state['climas'] = []
-if 'elevaciones' not in st.session_state:
-    st.session_state['elevaciones'] = []
-if 'desnivel_manual' not in st.session_state:
-    st.session_state['desnivel_manual'] = []
-
 
 # Función para extraer datos con el LLM
 def extraer_datos(query):
@@ -261,17 +210,8 @@ if query:
                     st.session_state['puntos']['intermedios'].append({"nombre": intermedio, "lat": lat, "lon": lon})
 
     # Calcular distancia y tiempo
-    (st.session_state['distancia'],
-     st.session_state['tiempo_estimado'],
-     st.session_state['desnivel_positivo'],
-     st.session_state['desnivel_negativo'],
-     st.session_state['elevaciones'],
-     st.session_state['desnivel_manual']) = calcular_distancia_tiempo(st.session_state['puntos'])
-
-    # Verificar si calcular_distancia_tiempo devolvió None
-    if st.session_state['distancia'] is None:
-        st.stop()  # Detener la ejecución si hubo un error
-
+    if not st.session_state['distancia'] or not st.session_state['tiempo_estimado']:
+        st.session_state['distancia'], st.session_state['tiempo_estimado'] = calcular_distancia_tiempo(st.session_state['puntos'])
 
     # Obtener clima en los puntos clave
     # Forzar año 2025
@@ -308,20 +248,6 @@ if query:
     st.write(f"Fecha de consulta a la API OpenWeather: {fecha_inicio_api.strftime('%Y-%m-%d')}")  # Mostrar la fecha usada
     st.write(f"🚴‍♂️ **Distancia total:** {st.session_state['distancia']:.2f} km")
     st.write(f"⏳ **Tiempo estimado:** {st.session_state['tiempo_estimado']:.2f} horas")
-
-    # Mostrar el desnivel si está disponible
-    if st.session_state['desnivel_positivo'] is not None:
-        st.write(f"⛰️ **Desnivel positivo (API):** {st.session_state['desnivel_positivo']:.2f} metros")
-    if st.session_state['desnivel_negativo'] is not None:
-        st.write(f"📉 **Desnivel negativo (API):** {st.session_state['desnivel_negativo']:.2f} metros")
-
-    if st.session_state['desnivel_manual']:
-        st.write(f"📈 **Desnivel positivo (Manual):** {st.session_state['desnivel_manual'][0]:.2f} metros")
-        st.write(f"📉 **Desnivel negativo (Manual):** {st.session_state['desnivel_manual'][1]:.2f} metros")
-    else:
-        st.write("📈 **Desnivel positivo (Manual):** No disponible")
-        st.write("📉 **Desnivel negativo (Manual):** No disponible")
-
     st.write("---")
 
     st.write("### Clima en los puntos de la ruta:")
