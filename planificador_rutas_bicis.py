@@ -106,7 +106,7 @@ def generar_recomendacion_con_llm(climas):
         {"role": "system", "content": "Eres un experto en ciclismo de nivel avanzado. Genera una recomendación breve de la ropa requerida según el clima (tricota, chaqueta, calza larga o corta, manguillas y pierneras) y accesorios como multi-herramietasm o camara de repuesto, verificar carga de elementos electronicos. Ademas, si la salida es larga recomendar una cantidad de geles y carbohidratos por hora."},
         {"role": "user", "content": f"Datos del clima en los puntos de la ruta:\n"
                                     f"{resumen_clima}\n\n"
-                                    f"Por favor, genera una recomendación breve y experta enfocada en la ropa, alimentación y accesorios más adecuada para las condiciones climáticas del viaje. Usa un formato de checklist. No entregues notas extras. NO recomiendes bidon de agua.  "}
+                                    f"Por favor, genera una recomendación breve y experta enfocada en la ropa, alimentación y accesorios más adecuada para las condiciones climáticas del viaje. Usa un formato de checklist. No entregues notas extras. NO recomiendes bidon de agua. No recomiendes bateria externa para cargar."}
     ]
 
     # Convertir el prompt y obtener la respuesta del LLM
