@@ -117,10 +117,10 @@ def generar_recomendacion_con_llm(climas):
 
 # Interfaz de Streamlit
 st.title("Planificador de Rutas de Bicicleta en Chile 🚴‍♂️")
-st.subheader("Pronóstico máximo a 7 días")
+# st.subheader("Pronóstico máximo a 7 días")
 
 # Campo de entrada sin mensaje precargado
-query = st.text_input("Ingresa tu ruta:", placeholder="Ej: Saldré a pedalear el 8 de febrero del 2025 a las 8:00 desde providencia a farellones, volviendo a providencia", key="input")
+query = st.text_input("Ingresa tu ruta (Pronóstico máximo a 7 días):", placeholder="Ej: Saldré a pedalear el 8 de febrero del 2025 a las 8:00 desde providencia a farellones, volviendo a providencia", key="input")
 
 # Inicializar variables de sesión
 if 'extracted_data' not in st.session_state:
