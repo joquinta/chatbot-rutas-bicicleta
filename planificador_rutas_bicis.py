@@ -110,7 +110,7 @@ def generar_recomendacion_con_llm(climas):
 
     # Convertir el prompt y obtener la respuesta del LLM
     lc_messages = convert_openai_messages(prompt)
-    response = ChatOpenAI(model='gpt-4o-mini', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
+    response = ChatOpenAI(model='gpt-4', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
 
     return response
 
@@ -177,6 +177,13 @@ if query:
     if 'hora_salida' not in st.session_state['extracted_data'] or not st.session_state['extracted_data']['hora_salida']:
         st.info("Por favor, especifica la hora de salida en tu ruta.")
         st.stop()
+    else:
+        # Intentar convertir la hora de salida
+        try:
+            st.session_state['hora_salida'] = datetime.strptime(st.session_state['extracted_data']["hora_salida"], "%Y-%m-%d %H:%M")
+        except ValueError:
+            st.info("Formato de fecha/hora incorrecto. Asegúrate de usar YYYY-MM-DD HH:MM.")
+            st.stop()
 
     # Obtener coordenadas de los puntos
     if not st.session_state['puntos']['inicio'].get('nombre'):
@@ -207,13 +214,6 @@ if query:
         st.session_state['distancia'], st.session_state['tiempo_estimado'] = calcular_distancia_tiempo(st.session_state['puntos'])
 
     # Obtener clima en los puntos clave
-    if not st.session_state['hora_salida']:
-        try:
-            st.session_state['hora_salida'] = datetime.strptime(st.session_state['extracted_data']["hora_salida"], "%Y-%m-%d %H:%M")
-        except ValueError:
-            st.info("Formato de fecha/hora incorrecto. Asegúrate de usar YYYY-MM-DD HH:MM.")
-            st.stop()
-
     # Forzar año 2025
     st.session_state['hora_salida'] = st.session_state['hora_salida'].replace(year=2025)
 
