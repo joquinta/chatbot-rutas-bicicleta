@@ -27,19 +27,18 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Función para obtener latitud y longitud con OpenWeatherMap Geocoding API
 def obtener_coordenadas(lugar):
-    # Forzar la búsqueda en Chile agregando ",cl" al final del lugar
     lugar_busqueda = f"{lugar},cl"
     url = f"http://api.openweathermap.org/geo/1.0/direct?q={lugar_busqueda}&limit=1&appid={OWM_API_KEY}"
     respuesta = requests.get(url).json()
-    
+
     if not respuesta:
         st.warning(f"No se encontraron coordenadas para {lugar}.")
         return None, None
-    
+
     return respuesta[0]["lat"], respuesta[0]["lon"]
 
-# Función para obtener la distancia, tiempo estimado y desnivel acumulado con OpenRouteService
-def calcular_distancia_tiempo_desnivel(puntos):
+# Función para obtener distancia y tiempo con OpenRouteService
+def calcular_distancia_tiempo(puntos):
     coords = [[puntos["inicio"]["lon"], puntos["inicio"]["lat"]]]
 
     if "intermedios" in puntos and puntos["intermedios"]:
@@ -53,104 +52,56 @@ def calcular_distancia_tiempo_desnivel(puntos):
     data = {"coordinates": coords, "format": "json"}
 
     respuesta = requests.post(url, headers=headers, json=data).json()
-    
+
     if "routes" not in respuesta:
         st.error("Error en la API de OpenRouteService.")
-        return None, None, None
-    
-    distancia_total = respuesta["routes"][0]["summary"]["distance"] / 1000  # Convertir a km
-    tiempo_total = respuesta["routes"][0]["summary"]["duration"] / 3600  # Convertir a horas
-    desnivel_acumulado = respuesta["routes"][0]["summary"]["ascent"]  # Desnivel acumulado en metros
+        return None, None
 
-    return distancia_total, tiempo_total, desnivel_acumulado
+    distancia_total = respuesta["routes"][0]["summary"]["distance"] / 1000
+    tiempo_total = respuesta["routes"][0]["summary"]["duration"] / 3600
 
-# Función para obtener el clima con OpenWeatherMap, eligiendo la hora más cercana hacia arriba
+    return distancia_total, tiempo_total
+
+# Función para obtener el clima con OpenWeatherMap
 def obtener_clima(lat, lon, fecha_hora):
     url = f"https://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lon}&appid={OWM_API_KEY}&units=metric&lang=es"
     respuesta = requests.get(url).json()
 
     if respuesta.get("cod") != "200":
-        return {"temperatura": "N/A", "condiciones": "No disponible", "viento": "N/A"}
+        return {"temperatura": "N/A", "condiciones": "No disponible", "viento": "N/A", "fecha_usada": fecha_hora.strftime('%Y-%m-%d %H:%M')}
 
-    # Filtrar solo pronósticos con timestamps en el futuro (hacia arriba)
     predicciones_futuras = [p for p in respuesta["list"] if datetime.utcfromtimestamp(p["dt"]) >= fecha_hora]
 
     if not predicciones_futuras:
-        return {"temperatura": "N/A", "condiciones": "No disponible", "viento": "N/A"}
+        return {"temperatura": "N/A", "condiciones": "No disponible", "viento": "N/A", "fecha_usada": fecha_hora.strftime('%Y-%m-%d %H:%M')}
 
     mejor_prediccion = min(predicciones_futuras, key=lambda x: datetime.utcfromtimestamp(x["dt"]))
 
-    # Convertir velocidad del viento de m/s a km/h (1 m/s = 3.6 km/h)
     viento_kmh = round(mejor_prediccion["wind"]["speed"] * 3.6, 1)
 
     return {
-        "temperatura": int(mejor_prediccion['main']['temp']),  # Temperatura sin decimales
+        "temperatura": int(mejor_prediccion['main']['temp']),
         "condiciones": mejor_prediccion["weather"][0]["description"].capitalize(),
-        "viento": viento_kmh  # Velocidad del viento en km/h
+        "viento": viento_kmh,
+        "fecha_usada": datetime.utcfromtimestamp(mejor_prediccion["dt"]).strftime('%Y-%m-%d %H:%M')
     }
-
-# Función para generar recomendaciones usando el LLM
-def generar_recomendacion_con_llm(climas, distancia, tiempo_estimado, desnivel_acumulado):
-    # Crear un resumen de los datos de clima
-    resumen_clima = "\n".join(
-        f"- {clima['nombre']} ({clima['hora_estimada'].strftime('%H:%M')}): {clima['clima']['condiciones']}, "
-        f"Temperatura: {clima['clima']['temperatura']}°C, Viento: {clima['clima']['viento']} km/h"
-        for clima in climas
-    )
-
-    # Crear el prompt para el LLM
-    prompt = [
-        {"role": "system", "content": "Eres un experto en ciclismo de nivel intermedio/avanzado. Genera una recomendación técnica y detallada para ciclistas experimentados basada en los siguientes datos:"},
-        {"role": "user", "content": f"Datos de la ruta:\n"
-                                    f"- Distancia total: {distancia:.2f} km\n"
-                                    f"- Tiempo estimado: {tiempo_estimado:.2f} horas\n"
-                                    f"- Desnivel acumulado: {desnivel_acumulado} m\n"
-                                    f"Datos del clima en los puntos de la ruta:\n"
-                                    f"{resumen_clima}\n\n"
-                                    f"Por favor, genera una recomendación técnica y útil para ciclistas de nivel intermedio/avanzado, teniendo en cuenta las condiciones climáticas, el desnivel y la duración de la ruta. "
-                                    f"Incluye sugerencias sobre equipamiento, hidratación, nutrición, ritmo, y cualquier otro aspecto relevante para un ciclista experimentado."}
-    ]
-
-    # Convertir el prompt y obtener la respuesta del LLM
-    lc_messages = convert_openai_messages(prompt)
-    response = ChatOpenAI(model='gpt-4', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
-
-    return response
-
-# Función para forzar el año 2025 en la fecha
-def forzar_año_2025(fecha_str):
-    try:
-        fecha = datetime.strptime(fecha_str, "%Y-%m-%d %H:%M")
-    except ValueError:
-        try:
-            # Si no tiene año, asumimos el año 2025
-            fecha = datetime.strptime(fecha_str, "%m-%d %H:%M")
-            fecha = fecha.replace(year=2025)
-        except ValueError:
-            st.error("Formato de fecha no válido. Usa 'YYYY-MM-DD HH:MM' o 'MM-DD HH:MM'.")
-            return None
-    return fecha
 
 # Interfaz de Streamlit
 st.title("Planificador de Rutas de Bicicleta en Chile 🚴‍♂️")
 
-# Campo de entrada sin mensaje precargado
-query = st.text_input("Ingresa tu ruta:", placeholder="Ej: Saldré a pedalear el 8 de febrero del 2025 a las 8:00 desde Osorno, pasando por San Pablo y La Unión, hasta Valdivia.", key="input")
+query = st.text_input("Ingresa tu ruta:", placeholder="Ej: Saldré a pedalear el 8 de febrero a las 8:00 desde Osorno hasta Valdivia.", key="input")
 
-# Planificar la ruta automáticamente al presionar Enter
 if query:
-    # Paso 2: Extraer información clave con OpenAI
     extract_prompt = [
-        {"role": "system", "content": "Extrae los siguientes datos en **JSON puro**, sin explicaciones:\n"
+        {"role": "system", "content": "Extrae los siguientes datos en JSON puro:\n"
          "{\n"
          "  \"hora_salida\": \"YYYY-MM-DD HH:MM\",\n"
          "  \"lugares\": {\n"
          "    \"inicio\": \"Nombre del lugar de inicio\",\n"
-         "    \"intermedios\": [\"Nombre del punto intermedio opcional 1\", \"Nombre del punto intermedio opcional 2\"],\n"
+         "    \"intermedios\": [\"Nombre del punto intermedio 1\", \"Nombre del punto intermedio 2\"],\n"
          "    \"destino\": \"Nombre del destino final\"\n"
          "  }\n"
-         "}"
-        },
+         "}"},
         {"role": "user", "content": query}
     ]
 
@@ -162,21 +113,13 @@ if query:
         try:
             extracted_data = json.loads(match.group(0))
         except json.JSONDecodeError:
-            st.error("Error al decodificar JSON. Respuesta del modelo: " + response)
+            st.error("Error al decodificar JSON.")
             extracted_data = None
     else:
-        st.error("No se encontró JSON en la respuesta del modelo.")
+        st.error("No se encontró JSON en la respuesta.")
         extracted_data = None
 
-    if not extracted_data:
-        st.error("No se pudo extraer la información correctamente.")
-    else:
-        # Forzar el año 2025 en la fecha de salida
-        hora_salida = forzar_año_2025(extracted_data["hora_salida"])
-        if not hora_salida:
-            st.stop()
-
-        # Obtener coordenadas de los puntos
+    if extracted_data:
         puntos = {"inicio": {}, "destino": {}, "intermedios": []}
 
         puntos["inicio"]["nombre"] = extracted_data["lugares"]["inicio"]
@@ -185,53 +128,30 @@ if query:
         puntos["destino"]["nombre"] = extracted_data["lugares"]["destino"]
         puntos["destino"]["lat"], puntos["destino"]["lon"] = obtener_coordenadas(puntos["destino"]["nombre"])
 
-        if "intermedios" in extracted_data["lugares"] and extracted_data["lugares"]["intermedios"]:
+        if "intermedios" in extracted_data["lugares"]:
             for intermedio in extracted_data["lugares"]["intermedios"]:
                 lat, lon = obtener_coordenadas(intermedio)
                 if lat and lon:
                     puntos["intermedios"].append({"nombre": intermedio, "lat": lat, "lon": lon})
 
-        # Calcular distancia, tiempo y desnivel acumulado
-        distancia, tiempo_estimado, desnivel_acumulado = calcular_distancia_tiempo_desnivel(puntos)
+        distancia, tiempo_estimado = calcular_distancia_tiempo(puntos)
 
-        # Obtener clima en los puntos clave
+        hora_salida = datetime.strptime(extracted_data["hora_salida"], "%Y-%m-%d %H:%M")
+        hora_salida = hora_salida.replace(year=2025)
+
         climas = []
-
-        # Clima en el inicio
         clima_inicio = obtener_clima(puntos["inicio"]["lat"], puntos["inicio"]["lon"], hora_salida)
         climas.append({"nombre": puntos["inicio"]["nombre"], "clima": clima_inicio, "hora_estimada": hora_salida})
 
-        # Clima en los puntos intermedios
         for i, punto in enumerate(puntos["intermedios"]):
-            tiempo_parcial = (i + 1) * (tiempo_estimado / (len(puntos["intermedios"]) + 1))
-            hora_estimada = hora_salida + timedelta(hours=tiempo_parcial)
+            hora_estimada = hora_salida + timedelta(hours=(i + 1) * tiempo_estimado / (len(puntos["intermedios"]) + 1))
             clima_intermedio = obtener_clima(punto["lat"], punto["lon"], hora_estimada)
             climas.append({"nombre": punto["nombre"], "clima": clima_intermedio, "hora_estimada": hora_estimada})
 
-        # Clima en el destino
-        hora_destino = hora_salida + timedelta(hours=tiempo_estimado)
-        clima_destino = obtener_clima(puntos["destino"]["lat"], puntos["destino"]["lon"], hora_destino)
-        climas.append({"nombre": puntos["destino"]["nombre"], "clima": clima_destino, "hora_estimada": hora_destino})
+        clima_destino = obtener_clima(puntos["destino"]["lat"], puntos["destino"]["lon"], hora_salida + timedelta(hours=tiempo_estimado))
+        climas.append({"nombre": puntos["destino"]["nombre"], "clima": clima_destino, "hora_estimada": hora_salida + timedelta(hours=tiempo_estimado)})
 
-        # Mostrar resultados de manera orgánica
         st.success("### Resumen de la ruta:")
-        st.write(f"📅 **Fecha de salida:** {hora_salida.strftime('%Y-%m-%d %H:%M')}")
-        st.write(f"🚴‍♂️ **Distancia total:** {distancia:.2f} km")
-        st.write(f"⏳ **Tiempo estimado:** {tiempo_estimado:.2f} horas")
-        st.write(f"⛰️ **Desnivel acumulado:** {desnivel_acumulado} m")
-        st.write("---")
-
-        st.write("### Clima en los puntos de la ruta:")
-        for clima in climas:
-            st.write(
-                f"📍 **{clima['nombre']}** ({clima['hora_estimada'].strftime('%H:%M')}): "
-                f"{clima['clima']['condiciones']}, Temperatura: {clima['clima']['temperatura']}°C, "
-                f"Viento: {clima['clima']['viento']} km/h"
-            )
-        st.write("---")
-
-        # Generar y mostrar recomendación final usando el LLM
-        recomendacion = generar_recomendacion_con_llm(climas, distancia, tiempo_estimado, desnivel_acumulado)
-        st.write("### Recomendación Técnica:")
-        st.info(recomendacion)
+        st.write(f"Fecha utilizada para el clima: {clima_inicio['fecha_usada']}")
+        st.write(f"Distancia: {distancia:.2f} km | Tiempo estimado: {tiempo_estimado:.2f} horas")
 
