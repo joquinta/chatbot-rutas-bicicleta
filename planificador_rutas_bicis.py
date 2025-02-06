@@ -8,6 +8,8 @@ Original file is located at
 """
 
 import streamlit as st
+import folium
+from streamlit_folium import st_folium
 from datetime import datetime, timedelta
 import json
 import requests
@@ -16,6 +18,7 @@ from langchain.adapters.openai import convert_openai_messages
 from langchain_community.chat_models import ChatOpenAI
 import os
 from dotenv import load_dotenv
+import polyline
 
 # Cargar variables de entorno
 load_dotenv()
@@ -56,13 +59,16 @@ def calcular_distancia_tiempo(puntos):
 
     if "routes" not in respuesta:
         st.error("Error en la API de OpenRouteService.")
-        return None, None, None
+        return None, None, None, None
 
     distancia_total = respuesta["routes"][0]["summary"]["distance"] / 1000  # Convertir a km
     tiempo_total = respuesta["routes"][0]["summary"]["duration"] / 3600  # Convertir a horas
     desnivel_positivo = respuesta["routes"][0]["summary"]["ascent"] #Desnivel positivo acumulado
 
-    return distancia_total, tiempo_total, desnivel_positivo
+    # Obtener la geometría de la ruta
+    ruta_geometry = respuesta["routes"][0]["geometry"]
+
+    return distancia_total, tiempo_total, desnivel_positivo, ruta_geometry
 
 # Función para obtener el clima con OpenWeatherMap, eligiendo la hora más cercana hacia arriba
 def obtener_clima(lat, lon, fecha_hora):
@@ -103,23 +109,49 @@ def generar_recomendacion_con_llm(climas):
 
     # Crear el prompt para el LLM
     prompt = [
-        {"role": "system", "content": "Eres un experto en ciclismo de nivel avanzado. Genera una recomendación breve de la ropa requerida según el clima (tricota, chaqueta, calza larga o corta, manguillas y pierneras) y accesorios como multi-herramietasm o camara de repuesto, verificar carga de elementos electronicos. Ademas, si la salida es larga recomendar una cantidad de geles y carbohidratos por hora."},
+        {"role": "system", "content": "Eres un experto en ciclismo de nivel intermedio/avanzado. Genera una recomendación breve y concisa, enfocada en la ropa y la alimentación, basándote en las condiciones climáticas del viaje."},
         {"role": "user", "content": f"Datos del clima en los puntos de la ruta:\n"
                                     f"{resumen_clima}\n\n"
-                                    f"Por favor, genera una recomendación breve y experta enfocada en la ropa, alimentación y accesorios más adecuada para las condiciones climáticas del viaje. Usa un formato de checklist. No entregues notas extras. NO recomiendes bidon de agua. No recomiendes bateria externa para cargar."}
+                                    f"Por favor, genera una recomendación breve y experta enfocada en la ropa y la alimentación más adecuada para las condiciones climáticas del viaje. Sé conciso y práctico."}
     ]
 
     # Convertir el prompt y obtener la respuesta del LLM
     lc_messages = convert_openai_messages(prompt)
-    response = ChatOpenAI(model='gpt-4o-mini', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
+    response = ChatOpenAI(model='gpt-4', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
 
     return response
+
+# Función para mostrar el mapa con Folium
+def mostrar_mapa(puntos, ruta_geometry):
+    # Calcular el centro del mapa (promedio de latitud y longitud de los puntos)
+    latitudes = [puntos["inicio"]["lat"], puntos["destino"]["lat"]] + [p["lat"] for p in puntos["intermedios"]]
+    longitudes = [puntos["inicio"]["lon"], puntos["destino"]["lon"]] + [p["lon"] for p in puntos["intermedios"]]
+    centro_lat = sum(latitudes) / len(latitudes)
+    centro_lon = sum(longitudes) / len(longitudes)
+
+    # Crear el mapa de Folium
+    m = folium.Map(location=[centro_lat, centro_lon], zoom_start=10)
+
+    # Decodificar la geometría de la ruta (polyline)
+    decoded_route = folium.PolyLine(locations=polyline.decode(ruta_geometry), color="blue", weight=2.5, opacity=1).add_to(m)
+
+    # Agregar marcadores para el inicio, intermedios y destino
+    folium.Marker([puntos["inicio"]["lat"], puntos["inicio"]["lon"]], popup=puntos["inicio"]["nombre"], icon=folium.Icon(color="green")).add_to(m)
+
+    for intermedio in puntos["intermedios"]:
+        folium.Marker([intermedio["lat"], intermedio["lon"]], popup=intermedio["nombre"], icon=folium.Icon(color="orange")).add_to(m)
+
+    folium.Marker([puntos["destino"]["lat"], puntos["destino"]["lon"]], popup=puntos["destino"]["nombre"], icon=folium.Icon(color="red")).add_to(m)
+
+    # Llamar a st_folium para mostrar el mapa en Streamlit
+    st_folium(m, width=700, height=500)  # Ajusta el tamaño según sea necesario
+
 
 # Interfaz de Streamlit
 st.title("Planificador de Rutas de Bicicleta en Chile 🚴‍♂️")
 
 # Campo de entrada sin mensaje precargado
-query = st.text_input("Ingresa tu ruta (Pronóstico máximo a 5 días):", placeholder="Ej: Saldré a pedalear el 8 de febrero del 2025 a las 8:00 desde providencia a farellones, volviendo a providencia", key="input")
+query = st.text_input("Ingresa tu ruta:", placeholder="Ej: Saldré a pedalear el 8 de febrero del 2025 a las 8:00 desde Osorno, pasando por San Pablo y La Unión, hasta Valdivia.", key="input")
 
 # Inicializar variables de sesión
 if 'extracted_data' not in st.session_state:
@@ -134,6 +166,8 @@ if 'tiempo_estimado' not in st.session_state:
     st.session_state['tiempo_estimado'] = None
 if 'desnivel_positivo' not in st.session_state:
     st.session_state['desnivel_positivo'] = None
+if 'ruta_geometry' not in st.session_state:
+    st.session_state['ruta_geometry'] = None
 if 'climas' not in st.session_state:
     st.session_state['climas'] = []
 
@@ -185,7 +219,7 @@ if query:
         try:
             st.session_state['hora_salida'] = datetime.strptime(st.session_state['extracted_data']["hora_salida"], "%Y-%m-%d %H:%M")
         except ValueError:
-            st.info("Por favor, especifica en el mensaje la hora de salida en tu ruta.")
+            st.info("Formato de fecha/hora incorrecto. Asegúrate de usar YYYY-MM-DD HH:MM.")
             st.stop()
 
     # Obtener coordenadas de los puntos
@@ -213,13 +247,13 @@ if query:
                     st.session_state['puntos']['intermedios'].append({"nombre": intermedio, "lat": lat, "lon": lon})
 
     # Calcular distancia y tiempo
-    if not st.session_state['distancia'] or not st.session_state['tiempo_estimado'] or not st.session_state['desnivel_positivo']:
-        st.session_state['distancia'], st.session_state['tiempo_estimado'], st.session_state['desnivel_positivo'] = calcular_distancia_tiempo(st.session_state['puntos'])
+    if not st.session_state['distancia'] or not st.session_state['tiempo_estimado'] or not st.session_state['desnivel_positivo'] or not st.session_state['ruta_geometry']:
+        st.session_state['distancia'], st.session_state['tiempo_estimado'], st.session_state['desnivel_positivo'], st.session_state['ruta_geometry'] = calcular_distancia_tiempo(st.session_state['puntos'])
 
     # Aplicar ajuste manual al desnivel positivo
     desnivel_ajustado = st.session_state['desnivel_positivo'] / 2
-    rango_minimo = round(desnivel_ajustado - 300, 2)
-    rango_maximo = round(desnivel_ajustado + 100, 2)
+    rango_minimo = round(desnivel_ajustado - 200, 2)
+    rango_maximo = round(desnivel_ajustado + 200, 2)
 
     # Obtener clima en los puntos clave
     # Forzar año 2025
@@ -256,8 +290,11 @@ if query:
     st.write(f"Fecha de consulta a la API OpenWeather: {fecha_inicio_api.strftime('%Y-%m-%d')}")  # Mostrar la fecha usada
     st.write(f"🚴‍♂️ **Distancia total:** {st.session_state['distancia']:.2f} km")
     st.write(f"⏳ **Tiempo estimado:** {st.session_state['tiempo_estimado']:.2f} horas")
-    st.write(f"📈 **Rango desnivel estimado:** {rango_minimo} - {rango_maximo} metros")
+    st.write(f"**Rango desnivel estimado:** {rango_minimo} - {rango_maximo} metros")
     st.write("---")
+
+    # Mostrar el mapa
+    mostrar_mapa(st.session_state['puntos'], st.session_state['ruta_geometry'])
 
     st.write("### Clima en los puntos de la ruta:")
     for clima in st.session_state['climas']:
