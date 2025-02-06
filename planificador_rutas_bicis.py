@@ -74,19 +74,36 @@ def calcular_distancia_tiempo(puntos):
     desnivel_positivo = respuesta["routes"][0]["summary"].get("ascent")  # Obtener el desnivel positivo
     desnivel_negativo = respuesta["routes"][0]["summary"].get("descent")  # Obtener el desnivel negativo
 
-    # Extraer las elevaciones de la ruta
-    elevaciones = [feature["geometry"]["coordinates"][2] for feature in respuesta["routes"][0]["segments"][0]["steps"]]
+    elevaciones = []
+    try:
+        for feature in respuesta["routes"][0]["segments"][0]["steps"]:
+            coordinates = feature["geometry"]["coordinates"]
+            if len(coordinates) > 2:
+                elevaciones.append(coordinates[2])
+            else:
+                elevaciones.append(None)
+    except (KeyError, IndexError, TypeError) as e:
+        st.warning(f"Error al extraer datos de elevación: {e}.  Es posible que la API no esté proporcionando datos de elevación completos para esta ruta.")
+        elevaciones = []  # Devuelve una lista vacía en caso de error severo
 
     return distancia_total, tiempo_total, desnivel_positivo, desnivel_negativo, elevaciones
+
 
 # Función para estimar el desnivel negativo acumulado a partir de las elevaciones
 def estimar_desnivel_negativo(elevaciones):
     desnivel_negativo_estimado = 0
-    for i in range(len(elevaciones) - 1):
-        diferencia_elevacion = elevaciones[i+1] - elevaciones[i]
-        if diferencia_elevacion < 0:
-            desnivel_negativo_estimado += diferencia_elevacion
-    return abs(desnivel_negativo_estimado)  # Retornar valor absoluto
+    prev_elevation = None  # Inicializa la elevación anterior como None
+    for elevation in elevaciones:
+        if elevation is None:
+            continue  # Ignora los valores None
+
+        if prev_elevation is not None:
+            diferencia_elevacion = elevation - prev_elevation
+            if diferencia_elevacion < 0:
+                desnivel_negativo_estimado += diferencia_elevacion
+        prev_elevation = elevation  # Actualiza la elevación anterior
+
+    return abs(desnivel_negativo_estimado)
 
 # Función para obtener el clima con OpenWeatherMap, eligiendo la hora más cercana hacia arriba
 def obtener_clima(lat, lon, fecha_hora):
