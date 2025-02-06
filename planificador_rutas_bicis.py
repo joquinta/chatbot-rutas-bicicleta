@@ -154,7 +154,25 @@ st.title("Planificador de Rutas de Bicicleta en Chile 🚴‍♂️")
 # Campo de entrada sin mensaje precargado
 query = st.text_input("Ingresa tu ruta (Pronóstico máximo a 5 días):", placeholder="Ej: Saldré a pedalear el 8 de febrero del 2025 a las 8:00 desde providencia a farellones, volviendo a providencia", key="input")
 
-# Inicializar variables de sesión
+# Función para limpiar las variables de sesión dependientes del prompt
+def limpiar_variables_sesion():
+    st.session_state['extracted_data'] = None
+    st.session_state['hora_salida'] = None
+    st.session_state['puntos'] = {"inicio": {}, "destino": {}, "intermedios": []}
+    st.session_state['distancia'] = None
+    st.session_state['tiempo_estimado'] = None
+    st.session_state['desnivel_positivo'] = None
+    st.session_state['climas'] = []
+
+# Llamar a la función de limpieza al cambiar el prompt
+if 'previous_query' not in st.session_state:
+    st.session_state['previous_query'] = ""
+
+if query != st.session_state['previous_query']:
+    limpiar_variables_sesion()
+    st.session_state['previous_query'] = query
+
+# Inicializar variables de sesión (solo si no existen)
 if 'extracted_data' not in st.session_state:
     st.session_state['extracted_data'] = None
 if 'hora_salida' not in st.session_state:
@@ -169,6 +187,7 @@ if 'desnivel_positivo' not in st.session_state:
     st.session_state['desnivel_positivo'] = None
 if 'climas' not in st.session_state:
     st.session_state['climas'] = []
+
 
 # Función para extraer datos con el LLM
 def extraer_datos(query):
@@ -288,7 +307,7 @@ if query:
         st.session_state['climas'].append({"nombre": punto['nombre'], "clima": clima_intermedio, "hora_estimada": hora_estimada})
 
     # Clima en el destino
-    hora_destino = st.session_state['hora_salida'] + timedelta(hours=st.session_state['tiempo_estimado']) if st.session_state['tiempo_estimado'] else st.session_state['hora_salida']
+    hora_destino = st.session_state['hora_salida'] + timedelta(st.session_state['tiempo_estimado'] if st.session_state['tiempo_estimado'] else timedelta(0))
 
     # Forzar año 2025
     hora_destino = hora_destino.replace(year=2025)
@@ -298,7 +317,8 @@ if query:
 
     # Mostrar resultados de manera orgánica
     st.success("### Resumen de la ruta:")
-    st.write(f"Fecha de consulta a la API OpenWeather: {fecha_inicio_api.strftime('%Y-%m-%d')}")  # Mostrar la fecha usada
+    if 'fecha_inicio_api' in locals():
+        st.write(f"Fecha de consulta a la API OpenWeather: {fecha_inicio_api.strftime('%Y-%m-%d')}")  # Mostrar la fecha usada
     if st.session_state['distancia']:
         st.write(f"🚴‍♂️ **Distancia total:** {st.session_state['distancia']:.2f} km")
     else:
