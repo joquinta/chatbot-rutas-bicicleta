@@ -16,7 +16,6 @@ from langchain.adapters.openai import convert_openai_messages
 from langchain_community.chat_models import ChatOpenAI
 import os
 from dotenv import load_dotenv
-import pytz  # Importa pytz
 
 # Cargar variables de entorno
 load_dotenv()
@@ -89,13 +88,8 @@ def calcular_distancia_tiempo(puntos):
 
 # Función para obtener el clima con OpenWeatherMap, eligiendo la hora más cercana hacia arriba
 def obtener_clima(lat, lon, fecha_hora):
-    # Convertir a UTC
-    local_timezone = pytz.timezone("America/Santiago")  # Reemplaza con tu zona horaria local
-    fecha_hora_local = local_timezone.localize(fecha_hora)
-    fecha_hora_utc = fecha_hora_local.astimezone(pytz.utc)
-
     # Forzar el año 2025
-    fecha_hora_utc = fecha_hora_utc.replace(year=2025)
+    fecha_hora = fecha_hora.replace(year=2025)
 
     url = f"https://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lon}&appid={OWM_API_KEY}&units=metric&lang=es"
     try:
@@ -104,24 +98,19 @@ def obtener_clima(lat, lon, fecha_hora):
         st.error(f"Error de conexión a OpenWeatherMap Forecast API: {e}")
         return {"temperatura": "N/A", "condiciones": "No disponible", "viento": "N/A"}, fecha_hora
 
+
     if respuesta.get("cod") != "200":
         st.warning(f"Error al obtener el clima: Código {respuesta.get('cod')}")
         return {"temperatura": "N/A", "condiciones": "No disponible", "viento": "N/A"}, fecha_hora
 
-    # Obtener la zona horaria UTC
-    utc_timezone = pytz.utc
-
     # Filtrar solo pronósticos con timestamps en el futuro (hacia arriba)
-    predicciones_futuras = [
-        p for p in respuesta["list"]
-        if datetime.utcfromtimestamp(p["dt"]).replace(tzinfo=utc_timezone) >= fecha_hora_utc
-    ]
+    predicciones_futuras = [p for p in respuesta["list"] if datetime.utcfromtimestamp(p["dt"]) >= fecha_hora]
 
     if not predicciones_futuras:
         st.warning("No se encontraron pronósticos futuros.")
         return {"temperatura": "N/A", "condiciones": "No disponible", "viento": "N/A"}, fecha_hora
 
-    mejor_prediccion = min(predicciones_futuras, key=lambda x: datetime.utcfromtimestamp(x["dt"]).replace(tzinfo=utc_timezone))
+    mejor_prediccion = min(predicciones_futuras, key=lambda x: datetime.utcfromtimestamp(x["dt"]))
 
     # Convertir velocidad del viento de m/s a km/h (1 m/s = 3.6 km/h)
     viento_kmh = round(mejor_prediccion["wind"]["speed"] * 3.6, 1)
