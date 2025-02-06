@@ -31,11 +31,11 @@ def obtener_coordenadas(lugar):
     lugar_busqueda = f"{lugar},cl"
     url = f"http://api.openweathermap.org/geo/1.0/direct?q={lugar_busqueda}&limit=1&appid={OWM_API_KEY}"
     respuesta = requests.get(url).json()
-    
+
     if not respuesta:
         st.warning(f"No se encontraron coordenadas para {lugar}.")
         return None, None
-    
+
     return respuesta[0]["lat"], respuesta[0]["lon"]
 
 # Función para obtener la distancia y el tiempo estimado con OpenRouteService
@@ -53,11 +53,11 @@ def calcular_distancia_tiempo(puntos):
     data = {"coordinates": coords, "format": "json"}
 
     respuesta = requests.post(url, headers=headers, json=data).json()
-    
+
     if "routes" not in respuesta:
         st.error("Error en la API de OpenRouteService.")
         return None, None
-    
+
     distancia_total = respuesta["routes"][0]["summary"]["distance"] / 1000  # Convertir a km
     tiempo_total = respuesta["routes"][0]["summary"]["duration"] / 3600  # Convertir a horas
 
@@ -92,7 +92,7 @@ def obtener_clima(lat, lon, fecha_hora):
     }, fecha_hora
 
 # Función para generar recomendaciones usando el LLM
-def generar_recomendacion_con_llm(climas, distancia, tiempo_estimado):
+def generar_recomendacion_con_llm(climas):
     # Crear un resumen de los datos de clima
     resumen_clima = "\n".join(
         f"- {clima['nombre']} ({clima['hora_estimada'].strftime('%H:%M')}): {clima['clima']['condiciones']}, "
@@ -102,14 +102,10 @@ def generar_recomendacion_con_llm(climas, distancia, tiempo_estimado):
 
     # Crear el prompt para el LLM
     prompt = [
-        {"role": "system", "content": "Eres un experto en ciclismo de nivel intermedio/avanzado. Genera una recomendación técnica y detallada para ciclistas experimentados basada en los siguientes datos:"},
-        {"role": "user", "content": f"Datos de la ruta:\n"
-                                    f"- Distancia total: {distancia:.2f} km\n"
-                                    f"- Tiempo estimado: {tiempo_estimado:.2f} horas\n"
-                                    f"Datos del clima en los puntos de la ruta:\n"
+        {"role": "system", "content": "Eres un experto en ciclismo de nivel intermedio/avanzado. Genera una recomendación breve y concisa, enfocada en la ropa y la alimentación, basándote en las condiciones climáticas del viaje."},
+        {"role": "user", "content": f"Datos del clima en los puntos de la ruta:\n"
                                     f"{resumen_clima}\n\n"
-                                    f"Por favor, genera una recomendación técnica y útil para ciclistas de nivel intermedio/avanzado, teniendo en cuenta las condiciones climáticas y la duración de la ruta. "
-                                    f"Incluye sugerencias sobre equipamiento, hidratación, nutrición, ritmo, y cualquier otro aspecto relevante para un ciclista experimentado."}
+                                    f"Por favor, genera una recomendación breve y experta enfocada en la ropa y la alimentación más adecuada para las condiciones climáticas del viaje. Sé conciso y práctico."}
     ]
 
     # Convertir el prompt y obtener la respuesta del LLM
@@ -124,9 +120,22 @@ st.title("Planificador de Rutas de Bicicleta en Chile 🚴‍♂️")
 # Campo de entrada sin mensaje precargado
 query = st.text_input("Ingresa tu ruta:", placeholder="Ej: Saldré a pedalear el 8 de febrero del 2025 a las 8:00 desde Osorno, pasando por San Pablo y La Unión, hasta Valdivia.", key="input")
 
-# Planificar la ruta automáticamente al presionar Enter
-if query:
-    # Paso 2: Extraer información clave con OpenAI
+# Inicializar variables de sesión
+if 'extracted_data' not in st.session_state:
+    st.session_state['extracted_data'] = None
+if 'hora_salida' not in st.session_state:
+    st.session_state['hora_salida'] = None
+if 'puntos' not in st.session_state:
+    st.session_state['puntos'] = {"inicio": {}, "destino": {}, "intermedios": []}
+if 'distancia' not in st.session_state:
+    st.session_state['distancia'] = None
+if 'tiempo_estimado' not in st.session_state:
+    st.session_state['tiempo_estimado'] = None
+if 'climas' not in st.session_state:
+    st.session_state['climas'] = []
+
+# Función para extraer datos con el LLM
+def extraer_datos(query):
     extract_prompt = [
         {"role": "system", "content": "Extrae los siguientes datos en **JSON puro**, sin explicaciones:\n"
          "{\n"
@@ -148,75 +157,85 @@ if query:
     if match:
         try:
             extracted_data = json.loads(match.group(0))
+            return extracted_data
         except json.JSONDecodeError:
             st.error("Error al decodificar JSON. Respuesta del modelo: " + response)
-            extracted_data = None
+            return None
     else:
         st.error("No se encontró JSON en la respuesta del modelo.")
-        extracted_data = None
+        return None
 
-    if not extracted_data:
-        st.error("No se pudo extraer la información correctamente.")
-    else:
+# Planificar la ruta automáticamente al presionar Enter
+if query:
+    st.session_state['extracted_data'] = extraer_datos(query)
+
+    if st.session_state['extracted_data']:
         # Obtener coordenadas de los puntos
-        puntos = {"inicio": {}, "destino": {}, "intermedios": []}
+        if not st.session_state['puntos']['inicio'].get('nombre'):
+            st.session_state['puntos']['inicio']['nombre'] = st.session_state['extracted_data']['lugares']['inicio']
+            st.session_state['puntos']['inicio']['lat'], st.session_state['puntos']['inicio']['lon'] = obtener_coordenadas(st.session_state['puntos']['inicio']['nombre'])
 
-        puntos["inicio"]["nombre"] = extracted_data["lugares"]["inicio"]
-        puntos["inicio"]["lat"], puntos["inicio"]["lon"] = obtener_coordenadas(puntos["inicio"]["nombre"])
+        if not st.session_state['puntos']['destino'].get('nombre'):
+            st.session_state['puntos']['destino']['nombre'] = st.session_state['extracted_data']['lugares']['destino']
+            st.session_state['puntos']['destino']['lat'], st.session_state['puntos']['destino']['lon'] = obtener_coordenadas(st.session_state['puntos']['destino']['nombre'])
 
-        puntos["destino"]["nombre"] = extracted_data["lugares"]["destino"]
-        puntos["destino"]["lat"], puntos["destino"]["lon"] = obtener_coordenadas(puntos["destino"]["nombre"])
-
-        if "intermedios" in extracted_data["lugares"] and extracted_data["lugares"]["intermedios"]:
-            for intermedio in extracted_data["lugares"]["intermedios"]:
-                lat, lon = obtener_coordenadas(intermedio)
-                if lat and lon:
-                    puntos["intermedios"].append({"nombre": intermedio, "lat": lat, "lon": lon})
+        if "intermedios" in st.session_state['extracted_data']['lugares'] and st.session_state['extracted_data']['lugares']['intermedios']:
+            for intermedio in st.session_state['extracted_data']['lugares']['intermedios']:
+                if not any(p['nombre'] == intermedio for p in st.session_state['puntos']['intermedios']):
+                    lat, lon = obtener_coordenadas(intermedio)
+                    if lat and lon:
+                        st.session_state['puntos']['intermedios'].append({"nombre": intermedio, "lat": lat, "lon": lon})
 
         # Calcular distancia y tiempo
-        distancia, tiempo_estimado = calcular_distancia_tiempo(puntos)
+        if not st.session_state['distancia'] or not st.session_state['tiempo_estimado']:
+            st.session_state['distancia'], st.session_state['tiempo_estimado'] = calcular_distancia_tiempo(st.session_state['puntos'])
 
         # Obtener clima en los puntos clave
-        hora_salida = datetime.strptime(extracted_data["hora_salida"], "%Y-%m-%d %H:%M")
+        if not st.session_state['hora_salida']:
+            try:
+                st.session_state['hora_salida'] = datetime.strptime(st.session_state['extracted_data']["hora_salida"], "%Y-%m-%d %H:%M")
+            except ValueError:
+                st.error("Formato de fecha incorrecto.  Asegúrate de usar YYYY-MM-DD HH:MM")
+                st.stop()
 
         # Forzar año 2025
-        hora_salida = hora_salida.replace(year=2025)
+        st.session_state['hora_salida'] = st.session_state['hora_salida'].replace(year=2025)
 
-        climas = []
+        st.session_state['climas'] = []
 
         # Clima en el inicio
-        clima_inicio, fecha_inicio_api = obtener_clima(puntos["inicio"]["lat"], puntos["inicio"]["lon"], hora_salida)
-        climas.append({"nombre": puntos["inicio"]["nombre"], "clima": clima_inicio, "hora_estimada": hora_salida})
+        clima_inicio, fecha_inicio_api = obtener_clima(st.session_state['puntos']['inicio']['lat'], st.session_state['puntos']['inicio']['lon'], st.session_state['hora_salida'])
+        st.session_state['climas'].append({"nombre": st.session_state['puntos']['inicio']['nombre'], "clima": clima_inicio, "hora_estimada": st.session_state['hora_salida']})
 
         # Clima en los puntos intermedios
-        for i, punto in enumerate(puntos["intermedios"]):
-            tiempo_parcial = (i + 1) * (tiempo_estimado / (len(puntos["intermedios"]) + 1))
-            hora_estimada = hora_salida + timedelta(hours=tiempo_parcial)
+        for i, punto in enumerate(st.session_state['puntos']['intermedios']):
+            tiempo_parcial = (i + 1) * (st.session_state['tiempo_estimado'] / (len(st.session_state['puntos']['intermedios']) + 1))
+            hora_estimada = st.session_state['hora_salida'] + timedelta(hours=tiempo_parcial)
 
-             # Forzar año 2025
+            # Forzar año 2025
             hora_estimada = hora_estimada.replace(year=2025)
-            
-            clima_intermedio, fecha_intermedio_api = obtener_clima(punto["lat"], punto["lon"], hora_estimada)
-            climas.append({"nombre": punto["nombre"], "clima": clima_intermedio, "hora_estimada": hora_estimada})
+
+            clima_intermedio, fecha_intermedio_api = obtener_clima(punto['lat'], punto['lon'], hora_estimada)
+            st.session_state['climas'].append({"nombre": punto['nombre'], "clima": clima_intermedio, "hora_estimada": hora_estimada})
 
         # Clima en el destino
-        hora_destino = hora_salida + timedelta(hours=tiempo_estimado)
+        hora_destino = st.session_state['hora_salida'] + timedelta(hours=st.session_state['tiempo_estimado'])
 
         # Forzar año 2025
         hora_destino = hora_destino.replace(year=2025)
-        
-        clima_destino, fecha_destino_api = obtener_clima(puntos["destino"]["lat"], puntos["destino"]["lon"], hora_destino)
-        climas.append({"nombre": puntos["destino"]["nombre"], "clima": clima_destino, "hora_estimada": hora_destino})
+
+        clima_destino, fecha_destino_api = obtener_clima(st.session_state['puntos']['destino']['lat'], st.session_state['puntos']['destino']['lon'], hora_destino)
+        st.session_state['climas'].append({"nombre": st.session_state['puntos']['destino']['nombre'], "clima": clima_destino, "hora_estimada": hora_destino})
 
         # Mostrar resultados de manera orgánica
         st.success("### Resumen de la ruta:")
         st.write(f"Fecha de consulta a la API OpenWeather: {fecha_inicio_api.strftime('%Y-%m-%d')}")  # Mostrar la fecha usada
-        st.write(f"🚴‍♂️ **Distancia total:** {distancia:.2f} km")
-        st.write(f"⏳ **Tiempo estimado:** {tiempo_estimado:.2f} horas")
+        st.write(f"🚴‍♂️ **Distancia total:** {st.session_state['distancia']:.2f} km")
+        st.write(f"⏳ **Tiempo estimado:** {st.session_state['tiempo_estimado']:.2f} horas")
         st.write("---")
 
         st.write("### Clima en los puntos de la ruta:")
-        for clima in climas:
+        for clima in st.session_state['climas']:
             st.write(
                 f"📍 **{clima['nombre']}** ({clima['hora_estimada'].strftime('%H:%M')}): "
                 f"{clima['clima']['condiciones']}, Temperatura: {clima['clima']['temperatura']}°C, "
@@ -225,8 +244,11 @@ if query:
         st.write("---")
 
         # Generar y mostrar recomendación final usando el LLM
-        recomendacion = generar_recomendacion_con_llm(climas, distancia, tiempo_estimado)
-        st.write("### Recomendación Técnica:")
+        recomendacion = generar_recomendacion_con_llm(st.session_state['climas'])
+        st.write("### Recomendación Técnica (Ropa y Alimentación):")
         st.info(recomendacion)
 
+    else:
+        # Si no se pudieron extraer los datos inicialmente, mostrar un mensaje
+        st.info("Por favor, proporciona más detalles sobre tu ruta (fecha, hora, puntos de inicio/fin).")
 
