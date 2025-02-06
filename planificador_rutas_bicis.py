@@ -16,7 +16,6 @@ from langchain.adapters.openai import convert_openai_messages
 from langchain_community.chat_models import ChatOpenAI
 import os
 from dotenv import load_dotenv
-import numpy as np  # Importar numpy para el suavizado
 
 # Cargar variables de entorno
 load_dotenv()
@@ -39,8 +38,8 @@ def obtener_coordenadas(lugar):
 
     return respuesta[0]["lat"], respuesta[0]["lon"]
 
-# Función para obtener la distancia y el tiempo estimado con OpenRouteService
-def calcular_distancia_tiempo(puntos):
+# Función para obtener la distancia y el tiempo estimado con OpenRouteService y calcular el desnivel acumulado
+def calcular_distancia_tiempo_y_desnivel(puntos):
     coords = [[puntos["inicio"]["lon"], puntos["inicio"]["lat"]]]
 
     if "intermedios" in puntos and puntos["intermedios"]:
@@ -58,28 +57,34 @@ def calcular_distancia_tiempo(puntos):
         "coordinates": coords,
         "format": "json",
         "elevation": True
-    }  # Habilitar la elevación en la solicitud
+    }
 
     try:
         respuesta = requests.post(url, headers=headers, json=data).json()
     except requests.exceptions.RequestException as e:
         st.error(f"Error al conectar con la API de OpenRouteService: {e}")
-        return None, None, None, None
+        return None, None, None
 
     if "routes" not in respuesta:
         st.error("Error en la API de OpenRouteService: " + str(respuesta.get("error", "Error desconocido")))
-        return None, None, None, None
+        return None, None, None
 
     distancia_total = respuesta["routes"][0]["summary"]["distance"] / 1000  # Convertir a km
     tiempo_total = respuesta["routes"][0]["summary"]["duration"] / 3600  # Convertir a horas
-    desnivel_positivo = respuesta["routes"][0]["summary"].get("ascent")  # Obtener el desnivel positivo
-    desnivel_negativo = respuesta["routes"][0]["summary"].get("descent")  # Obtener el desnivel negativo
 
-    # Imprimir los valores para debug
-    print(f"Desnivel positivo (raw): {desnivel_positivo}")
-    print(f"Desnivel negativo (raw): {desnivel_negativo}")
+    # Obtener las coordenadas con elevación de la ruta
+    coordenadas_con_elevacion = respuesta["routes"][0]["geometry"]["coordinates"]
 
-    return distancia_total, tiempo_total, desnivel_positivo, desnivel_negativo
+    # Calcular el desnivel acumulado
+    desnivel_acumulado = 0
+    for i in range(len(coordenadas_con_elevacion) - 1):
+        elevacion_actual = coordenadas_con_elevacion[i][2]
+        elevacion_siguiente = coordenadas_con_elevacion[i + 1][2]
+        diferencia_elevacion = elevacion_siguiente - elevacion_actual
+        if diferencia_elevacion < 0:
+            desnivel_acumulado += abs(diferencia_elevacion)
+
+    return distancia_total, tiempo_total, desnivel_acumulado
 
 # Función para obtener el clima con OpenWeatherMap, eligiendo la hora más cercana hacia arriba
 def obtener_clima(lat, lon, fecha_hora):
@@ -149,10 +154,8 @@ if 'distancia' not in st.session_state:
     st.session_state['distancia'] = None
 if 'tiempo_estimado' not in st.session_state:
     st.session_state['tiempo_estimado'] = None
-if 'desnivel_positivo' not in st.session_state:
-    st.session_state['desnivel_positivo'] = None
-if 'desnivel_negativo' not in st.session_state:
-    st.session_state['desnivel_negativo'] = None
+if 'desnivel_acumulado' not in st.session_state:
+    st.session_state['desnivel_acumulado'] = None
 if 'climas' not in st.session_state:
     st.session_state['climas'] = []
 
@@ -231,13 +234,12 @@ if query:
                 if lat and lon:
                     st.session_state['puntos']['intermedios'].append({"nombre": intermedio, "lat": lat, "lon": lon})
 
-    # Calcular distancia y tiempo
+    # Calcular distancia y tiempo y desnivel
     (st.session_state['distancia'],
      st.session_state['tiempo_estimado'],
-     st.session_state['desnivel_positivo'],
-     st.session_state['desnivel_negativo']) = calcular_distancia_tiempo(st.session_state['puntos'])
+     st.session_state['desnivel_acumulado']) = calcular_distancia_tiempo_y_desnivel(st.session_state['puntos'])
 
-    # Verificar si calcular_distancia_tiempo devolvió None
+    # Verificar si calcular_distancia_tiempo_y_desnivel devolvió None
     if st.session_state['distancia'] is None:
         st.stop()  # Detener la ejecución si hubo un error
 
@@ -278,10 +280,8 @@ if query:
     st.write(f"⏳ **Tiempo estimado:** {st.session_state['tiempo_estimado']:.2f} horas")
 
     # Mostrar el desnivel si está disponible
-    if st.session_state['desnivel_positivo'] is not None:
-        st.write(f"⛰️ **Desnivel positivo:** {st.session_state['desnivel_positivo']:.2f} metros")
-    if st.session_state['desnivel_negativo'] is not None:
-        st.write(f"📉 **Desnivel negativo:** {st.session_state['desnivel_negativo']:.2f} metros")
+    if st.session_state['desnivel_acumulado'] is not None:
+        st.write(f"📉 **Desnivel acumulado (descenso):** {st.session_state['desnivel_acumulado']:.2f} metros")
 
     st.write("---")
 
