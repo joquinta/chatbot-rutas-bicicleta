@@ -65,17 +65,20 @@ def calcular_distancia_tiempo(puntos):
 
 # Función para obtener el clima con OpenWeatherMap, eligiendo la hora más cercana hacia arriba
 def obtener_clima(lat, lon, fecha_hora):
+    # Forzar el año 2025
+    fecha_hora = fecha_hora.replace(year=2025)
+
     url = f"https://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lon}&appid={OWM_API_KEY}&units=metric&lang=es"
     respuesta = requests.get(url).json()
 
     if respuesta.get("cod") != "200":
-        return {"temperatura": "N/A", "condiciones": "No disponible", "viento": "N/A"}
+        return {"temperatura": "N/A", "condiciones": "No disponible", "viento": "N/A"}, fecha_hora
 
     # Filtrar solo pronósticos con timestamps en el futuro (hacia arriba)
     predicciones_futuras = [p for p in respuesta["list"] if datetime.utcfromtimestamp(p["dt"]) >= fecha_hora]
 
     if not predicciones_futuras:
-        return {"temperatura": "N/A", "condiciones": "No disponible", "viento": "N/A"}
+        return {"temperatura": "N/A", "condiciones": "No disponible", "viento": "N/A"}, fecha_hora
 
     mejor_prediccion = min(predicciones_futuras, key=lambda x: datetime.utcfromtimestamp(x["dt"]))
 
@@ -86,7 +89,7 @@ def obtener_clima(lat, lon, fecha_hora):
         "temperatura": int(mejor_prediccion['main']['temp']),  # Temperatura sin decimales
         "condiciones": mejor_prediccion["weather"][0]["description"].capitalize(),
         "viento": viento_kmh  # Velocidad del viento en km/h
-    }
+    }, fecha_hora
 
 # Función para generar recomendaciones usando el LLM
 def generar_recomendacion_con_llm(climas, distancia, tiempo_estimado):
@@ -111,7 +114,7 @@ def generar_recomendacion_con_llm(climas, distancia, tiempo_estimado):
 
     # Convertir el prompt y obtener la respuesta del LLM
     lc_messages = convert_openai_messages(prompt)
-    response = ChatOpenAI(model='gpt-4o-mini', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
+    response = ChatOpenAI(model='gpt-4', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
 
     return response
 
@@ -139,7 +142,7 @@ if query:
     ]
 
     lc_messages = convert_openai_messages(extract_prompt)
-    response = ChatOpenAI(model='gpt-4o-mini', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
+    response = ChatOpenAI(model='gpt-4', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
 
     match = re.search(r"\{.*\}", response, re.DOTALL)
     if match:
@@ -175,26 +178,39 @@ if query:
 
         # Obtener clima en los puntos clave
         hora_salida = datetime.strptime(extracted_data["hora_salida"], "%Y-%m-%d %H:%M")
+
+        # Forzar año 2025
+        hora_salida = hora_salida.replace(year=2025)
+
         climas = []
 
         # Clima en el inicio
-        clima_inicio = obtener_clima(puntos["inicio"]["lat"], puntos["inicio"]["lon"], hora_salida)
+        clima_inicio, fecha_inicio_api = obtener_clima(puntos["inicio"]["lat"], puntos["inicio"]["lon"], hora_salida)
         climas.append({"nombre": puntos["inicio"]["nombre"], "clima": clima_inicio, "hora_estimada": hora_salida})
 
         # Clima en los puntos intermedios
         for i, punto in enumerate(puntos["intermedios"]):
             tiempo_parcial = (i + 1) * (tiempo_estimado / (len(puntos["intermedios"]) + 1))
             hora_estimada = hora_salida + timedelta(hours=tiempo_parcial)
-            clima_intermedio = obtener_clima(punto["lat"], punto["lon"], hora_estimada)
+
+             # Forzar año 2025
+            hora_estimada = hora_estimada.replace(year=2025)
+            
+            clima_intermedio, fecha_intermedio_api = obtener_clima(punto["lat"], punto["lon"], hora_estimada)
             climas.append({"nombre": punto["nombre"], "clima": clima_intermedio, "hora_estimada": hora_estimada})
 
         # Clima en el destino
         hora_destino = hora_salida + timedelta(hours=tiempo_estimado)
-        clima_destino = obtener_clima(puntos["destino"]["lat"], puntos["destino"]["lon"], hora_destino)
+
+        # Forzar año 2025
+        hora_destino = hora_destino.replace(year=2025)
+        
+        clima_destino, fecha_destino_api = obtener_clima(puntos["destino"]["lat"], puntos["destino"]["lon"], hora_destino)
         climas.append({"nombre": puntos["destino"]["nombre"], "clima": clima_destino, "hora_estimada": hora_destino})
 
         # Mostrar resultados de manera orgánica
         st.success("### Resumen de la ruta:")
+        st.write(f"Fecha de consulta a la API OpenWeather: {fecha_inicio_api.strftime('%Y-%m-%d')}")  # Mostrar la fecha usada
         st.write(f"🚴‍♂️ **Distancia total:** {distancia:.2f} km")
         st.write(f"⏳ **Tiempo estimado:** {tiempo_estimado:.2f} horas")
         st.write("---")
