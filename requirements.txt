@@ -1,6 +1,8 @@
 streamlit
-openai
-requests
+folium
+streamlit_folium
+python-dotenv
 langchain
+openai
+polyline
 langchain_community
-fpdf
