@@ -55,10 +55,16 @@ def calcular_distancia_tiempo(puntos):
     headers = {"Authorization": ORS_API_KEY, "Content-Type": "application/json"}
     data = {"coordinates": coords, "format": "json", "elevation": True}  # Añadido "elevation": True
 
-    respuesta = requests.post(url, headers=headers, json=data).json()
+    try:
+        respuesta = requests.post(url, headers=headers, json=data).json()
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error al conectar con OpenRouteService: {e}")
+        return None, None, None, None
+
+    print("Respuesta completa de OpenRouteService:", respuesta)  # Imprime la respuesta completa
 
     if "routes" not in respuesta:
-        st.error("Error en la API de OpenRouteService.")
+        st.error("Error en la API de OpenRouteService. No se encontraron rutas en la respuesta.")
         return None, None, None, None
 
     distancia_total = respuesta["routes"][0]["summary"]["distance"] / 1000  # Convertir a km
@@ -133,7 +139,17 @@ def mostrar_mapa(puntos, ruta_geometry):
     m = folium.Map(location=[centro_lat, centro_lon], zoom_start=10)
 
     # Decodificar la geometría de la ruta (polyline)
-    decoded_route = folium.PolyLine(locations=polyline.decode(ruta_geometry), color="blue", weight=2.5, opacity=1).add_to(m)
+    print("ruta_geometry:", ruta_geometry)  # Imprime la cadena de la ruta
+    print("tipo de ruta_geometry:", type(ruta_geometry)) # Imprime el tipo de dato
+    if ruta_geometry:
+        try:
+            decoded_route = folium.PolyLine(locations=polyline.decode(ruta_geometry), color="blue", weight=2.5, opacity=1).add_to(m)
+        except Exception as e:
+            st.error(f"Error al decodificar la geometría de la ruta: {e}")
+            return
+    else:
+        st.warning("No se pudo obtener la geometría de la ruta.")
+        return
 
     # Agregar marcadores para el inicio, intermedios y destino
     folium.Marker([puntos["inicio"]["lat"], puntos["inicio"]["lon"]], popup=puntos["inicio"]["nombre"], icon=folium.Icon(color="green")).add_to(m)
@@ -247,8 +263,7 @@ if query:
                     st.session_state['puntos']['intermedios'].append({"nombre": intermedio, "lat": lat, "lon": lon})
 
     # Calcular distancia y tiempo
-    if not st.session_state['distancia'] or not st.session_state['tiempo_estimado'] or not st.session_state['desnivel_positivo'] or not st.session_state['ruta_geometry']:
-        st.session_state['distancia'], st.session_state['tiempo_estimado'], st.session_state['desnivel_positivo'], st.session_state['ruta_geometry'] = calcular_distancia_tiempo(st.session_state['puntos'])
+    st.session_state['distancia'], st.session_state['tiempo_estimado'], st.session_state['desnivel_positivo'], st.session_state['ruta_geometry'] = calcular_distancia_tiempo(st.session_state['puntos'])
 
     # Aplicar ajuste manual al desnivel positivo
     desnivel_ajustado = st.session_state['desnivel_positivo'] / 2
