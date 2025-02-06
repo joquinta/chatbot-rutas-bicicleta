@@ -20,14 +20,14 @@ from dotenv import load_dotenv
 # Cargar variables de entorno
 load_dotenv()
 
-# Claves API (definidas en .env o en la configuración de Streamlit)
-OWM_API_KEY = os.getenv("OWM_API_KEY")
-ORS_API_KEY = os.getenv("ORS_API_KEY")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+# Claves API
+OWM_API_KEY = os.getenv("OWM_API_KEY")  # OpenWeatherMap
+ORS_API_KEY = os.getenv("ORS_API_KEY")  # OpenRouteService
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # OpenAI
 
-# Función para obtener latitud y longitud con OpenWeatherMap Geocoding API
+# Función para obtener latitud y longitud de un lugar
 def obtener_coordenadas(lugar):
-    lugar_busqueda = f"{lugar},cl"
+    lugar_busqueda = f"{lugar},cl"  # Forzar búsqueda en Chile
     url = f"http://api.openweathermap.org/geo/1.0/direct?q={lugar_busqueda}&limit=1&appid={OWM_API_KEY}"
     respuesta = requests.get(url).json()
 
@@ -37,7 +37,7 @@ def obtener_coordenadas(lugar):
 
     return respuesta[0]["lat"], respuesta[0]["lon"]
 
-# Función para obtener distancia y tiempo con OpenRouteService
+# Función para calcular distancia y tiempo con OpenRouteService
 def calcular_distancia_tiempo(puntos):
     coords = [[puntos["inicio"]["lon"], puntos["inicio"]["lat"]]]
 
@@ -57,12 +57,12 @@ def calcular_distancia_tiempo(puntos):
         st.error("Error en la API de OpenRouteService.")
         return None, None
 
-    distancia_total = respuesta["routes"][0]["summary"]["distance"] / 1000
-    tiempo_total = respuesta["routes"][0]["summary"]["duration"] / 3600
+    distancia_total = respuesta["routes"][0]["summary"]["distance"] / 1000  # Convertir a km
+    tiempo_total = respuesta["routes"][0]["summary"]["duration"] / 3600  # Convertir a horas
 
     return distancia_total, tiempo_total
 
-# Función para obtener el clima con OpenWeatherMap
+# Función para obtener clima en un punto y momento específico
 def obtener_clima(lat, lon, fecha_hora):
     url = f"https://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lon}&appid={OWM_API_KEY}&units=metric&lang=es"
     respuesta = requests.get(url).json()
@@ -92,6 +92,7 @@ st.title("Planificador de Rutas de Bicicleta en Chile 🚴‍♂️")
 query = st.text_input("Ingresa tu ruta:", placeholder="Ej: Saldré a pedalear el 8 de febrero a las 8:00 desde Osorno hasta Valdivia.", key="input")
 
 if query:
+    # Prompt para extraer la información
     extract_prompt = [
         {"role": "system", "content": "Extrae los siguientes datos en JSON puro:\n"
          "{\n"
@@ -137,7 +138,7 @@ if query:
         distancia, tiempo_estimado = calcular_distancia_tiempo(puntos)
 
         hora_salida = datetime.strptime(extracted_data["hora_salida"], "%Y-%m-%d %H:%M")
-        hora_salida = hora_salida.replace(year=2025)
+        hora_salida = hora_salida.replace(year=2025)  # Asegurar que siempre sea 2025
 
         climas = []
         clima_inicio = obtener_clima(puntos["inicio"]["lat"], puntos["inicio"]["lon"], hora_salida)
@@ -154,4 +155,5 @@ if query:
         st.success("### Resumen de la ruta:")
         st.write(f"Fecha utilizada para el clima: {clima_inicio['fecha_usada']}")
         st.write(f"Distancia: {distancia:.2f} km | Tiempo estimado: {tiempo_estimado:.2f} horas")
+
 
