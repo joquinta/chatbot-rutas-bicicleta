@@ -49,13 +49,24 @@ def calcular_distancia_tiempo(puntos):
     coords.append([puntos["destino"]["lon"], puntos["destino"]["lat"]])
 
     url = "https://api.openrouteservice.org/v2/directions/cycling-regular"
-    headers = {"Authorization": ORS_API_KEY, "Content-Type": "application/json"}
-    data = {"coordinates": coords, "format": "json", "elevation": True}  # Habilitar la elevación en la solicitud
+    headers = {
+        "Authorization": ORS_API_KEY,
+        "Content-Type": "application/json"
+    }
+    data = {
+        "coordinates": coords,
+        "format": "json",
+        "elevation": True
+    }  # Habilitar la elevación en la solicitud
 
-    respuesta = requests.post(url, headers=headers, json=data).json()
+    try:
+        respuesta = requests.post(url, headers=headers, json=data).json()
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error al conectar con la API de OpenRouteService: {e}")
+        return None, None, None, None
 
     if "routes" not in respuesta:
-        st.error("Error en la API de OpenRouteService.")
+        st.error("Error en la API de OpenRouteService: " + str(respuesta.get("error", "Error desconocido")))
         return None, None, None, None
 
     distancia_total = respuesta["routes"][0]["summary"]["distance"] / 1000  # Convertir a km
@@ -216,8 +227,14 @@ if query:
                     st.session_state['puntos']['intermedios'].append({"nombre": intermedio, "lat": lat, "lon": lon})
 
     # Calcular distancia y tiempo
-    if not st.session_state['distancia'] or not st.session_state['tiempo_estimado']:
-        st.session_state['distancia'], st.session_state['tiempo_estimado'], st.session_state['desnivel_positivo'], st.session_state['desnivel_negativo'] = calcular_distancia_tiempo(st.session_state['puntos'])
+    (st.session_state['distancia'],
+     st.session_state['tiempo_estimado'],
+     st.session_state['desnivel_positivo'],
+     st.session_state['desnivel_negativo']) = calcular_distancia_tiempo(st.session_state['puntos'])
+
+    # Verificar si calcular_distancia_tiempo devolvió None
+    if st.session_state['distancia'] is None:
+        st.stop()  # Detener la ejecución si hubo un error
 
     # Obtener clima en los puntos clave
     # Forzar año 2025
