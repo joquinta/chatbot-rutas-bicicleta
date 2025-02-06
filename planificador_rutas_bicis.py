@@ -151,7 +151,7 @@ def extraer_datos(query):
     ]
 
     lc_messages = convert_openai_messages(extract_prompt)
-    response = ChatOpenAI(model='gpt-4', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
+    response = ChatOpenAI(model='gpt-4o-mini', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
 
     match = re.search(r"\{.*\}", response, re.DOTALL)
     if match:
