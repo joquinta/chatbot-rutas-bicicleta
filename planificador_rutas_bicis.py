@@ -16,6 +16,7 @@ from langchain.adapters.openai import convert_openai_messages
 from langchain_community.chat_models import ChatOpenAI
 import os
 from dotenv import load_dotenv
+import numpy as np  # Importar numpy para el suavizado
 
 # Cargar variables de entorno
 load_dotenv()
@@ -73,6 +74,10 @@ def calcular_distancia_tiempo(puntos):
     tiempo_total = respuesta["routes"][0]["summary"]["duration"] / 3600  # Convertir a horas
     desnivel_positivo = respuesta["routes"][0]["summary"].get("ascent")  # Obtener el desnivel positivo
     desnivel_negativo = respuesta["routes"][0]["summary"].get("descent")  # Obtener el desnivel negativo
+
+    # Imprimir los valores para debug
+    print(f"Desnivel positivo (raw): {desnivel_positivo}")
+    print(f"Desnivel negativo (raw): {desnivel_negativo}")
 
     return distancia_total, tiempo_total, desnivel_positivo, desnivel_negativo
 
