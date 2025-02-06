@@ -30,9 +30,17 @@ def obtener_coordenadas(lugar):
     # Forzar la búsqueda en Chile agregando ",cl" al final del lugar
     lugar_busqueda = f"{lugar},cl"
     url = f"http://api.openweathermap.org/geo/1.0/direct?q={lugar_busqueda}&limit=1&appid={OWM_API_KEY}"
-    respuesta = requests.get(url).json()
+    try:
+        respuesta = requests.get(url).json()
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error de conexión a OpenWeatherMap Geocoding API: {e}")
+        return None, None
 
     if not respuesta:
+        st.warning(f"No se encontraron coordenadas para {lugar}.")
+        return None, None
+
+    if not isinstance(respuesta, list) or not respuesta:
         st.warning(f"No se encontraron coordenadas para {lugar}.")
         return None, None
 
@@ -52,15 +60,29 @@ def calcular_distancia_tiempo(puntos):
     headers = {"Authorization": ORS_API_KEY, "Content-Type": "application/json"}
     data = {"coordinates": coords, "format": "json", "elevation": True}  # Añadido "elevation": True
 
-    respuesta = requests.post(url, headers=headers, json=data).json()
-
-    if "routes" not in respuesta:
-        st.error("Error en la API de OpenRouteService.")
+    try:
+        respuesta = requests.post(url, headers=headers, json=data).json()
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error de conexión a OpenRouteService: {e}")
         return None, None, None
 
-    distancia_total = respuesta["routes"][0]["summary"]["distance"] / 1000  # Convertir a km
-    tiempo_total = respuesta["routes"][0]["summary"]["duration"] / 3600  # Convertir a horas
-    desnivel_positivo = respuesta["routes"][0]["summary"]["ascent"] #Desnivel positivo acumulado
+    if not isinstance(respuesta, dict) or "routes" not in respuesta:
+        st.error("Error en la API de OpenRouteService.")
+        if isinstance(respuesta, dict) and "error" in respuesta:
+             st.error(f"Detalles del error: {respuesta['error']}")
+        return None, None, None
+
+    try:
+        distancia_total = respuesta["routes"][0]["summary"]["distance"] / 1000  # Convertir a km
+        tiempo_total = respuesta["routes"][0]["summary"]["duration"] / 3600  # Convertir a horas
+        desnivel_positivo = respuesta["routes"][0]["summary"]["ascent"] #Desnivel positivo acumulado
+    except KeyError as e:
+        st.error(f"Error al procesar la respuesta de OpenRouteService. Falta la clave: {e}")
+        return None, None, None
+    except TypeError as e:
+         st.error(f"Error al procesar la respuesta de OpenRouteService. Error de tipo: {e}.  Asegúrese de que los datos de la ruta son válidos")
+         return None, None, None
+
 
     return distancia_total, tiempo_total, desnivel_positivo
 
@@ -70,15 +92,22 @@ def obtener_clima(lat, lon, fecha_hora):
     fecha_hora = fecha_hora.replace(year=2025)
 
     url = f"https://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lon}&appid={OWM_API_KEY}&units=metric&lang=es"
-    respuesta = requests.get(url).json()
+    try:
+        respuesta = requests.get(url).json()
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error de conexión a OpenWeatherMap Forecast API: {e}")
+        return {"temperatura": "N/A", "condiciones": "No disponible", "viento": "N/A"}, fecha_hora
+
 
     if respuesta.get("cod") != "200":
+        st.warning(f"Error al obtener el clima: Código {respuesta.get('cod')}")
         return {"temperatura": "N/A", "condiciones": "No disponible", "viento": "N/A"}, fecha_hora
 
     # Filtrar solo pronósticos con timestamps en el futuro (hacia arriba)
     predicciones_futuras = [p for p in respuesta["list"] if datetime.utcfromtimestamp(p["dt"]) >= fecha_hora]
 
     if not predicciones_futuras:
+        st.warning("No se encontraron pronósticos futuros.")
         return {"temperatura": "N/A", "condiciones": "No disponible", "viento": "N/A"}, fecha_hora
 
     mejor_prediccion = min(predicciones_futuras, key=lambda x: datetime.utcfromtimestamp(x["dt"]))
@@ -111,7 +140,11 @@ def generar_recomendacion_con_llm(climas):
 
     # Convertir el prompt y obtener la respuesta del LLM
     lc_messages = convert_openai_messages(prompt)
-    response = ChatOpenAI(model='gpt-4o-mini', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
+    try:
+        response = ChatOpenAI(model='gpt-4o-mini', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
+    except Exception as e:
+        st.error(f"Error al invocar el modelo de lenguaje: {e}")
+        return "No se pudo generar la recomendación."
 
     return response
 
@@ -154,7 +187,11 @@ def extraer_datos(query):
     ]
 
     lc_messages = convert_openai_messages(extract_prompt)
-    response = ChatOpenAI(model='gpt-4', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
+    try:
+        response = ChatOpenAI(model='gpt-4', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
+    except Exception as e:
+        st.error(f"Error al invocar el modelo de lenguaje: {e}")
+        return None
 
     match = re.search(r"\{.*\}", response, re.DOTALL)
     if match:
@@ -185,7 +222,7 @@ if query:
         try:
             st.session_state['hora_salida'] = datetime.strptime(st.session_state['extracted_data']["hora_salida"], "%Y-%m-%d %H:%M")
         except ValueError:
-            st.info("Por favor, especifica en el mensaje la hora de salida en tu ruta.")
+            st.info("Por favor, especifica en el mensaje la hora de salida en tu ruta con el formato AAAA-MM-DD HH:MM.")
             st.stop()
 
     # Obtener coordenadas de los puntos
@@ -211,15 +248,23 @@ if query:
                 lat, lon = obtener_coordenadas(intermedio)
                 if lat and lon:
                     st.session_state['puntos']['intermedios'].append({"nombre": intermedio, "lat": lat, "lon": lon})
+                else:
+                    st.warning(f"No se pudieron obtener coordenadas para el punto intermedio: {intermedio}")
 
     # Calcular distancia y tiempo
-    if not st.session_state['distancia'] or not st.session_state['tiempo_estimado'] or not st.session_state['desnivel_positivo']:
+    if not st.session_state['distancia'] or not st.session_state['tiempo_estimado'] or st.session_state['desnivel_positivo'] is None:
         st.session_state['distancia'], st.session_state['tiempo_estimado'], st.session_state['desnivel_positivo'] = calcular_distancia_tiempo(st.session_state['puntos'])
 
     # Aplicar ajuste manual al desnivel positivo
-    desnivel_ajustado = st.session_state['desnivel_positivo'] / 2
-    rango_minimo = round(desnivel_ajustado - 300, 2)
-    rango_maximo = round(desnivel_ajustado + 100, 2)
+    if st.session_state['desnivel_positivo'] is not None:
+        desnivel_ajustado = st.session_state['desnivel_positivo'] / 2
+        rango_minimo = round(desnivel_ajustado - 300, 2)
+        rango_maximo = round(desnivel_ajustado + 100, 2)
+    else:
+        desnivel_ajustado = None
+        rango_minimo = None
+        rango_maximo = None
+        st.warning("No se pudo calcular el desnivel positivo.")
 
     # Obtener clima en los puntos clave
     # Forzar año 2025
@@ -233,7 +278,7 @@ if query:
 
     # Clima en los puntos intermedios
     for i, punto in enumerate(st.session_state['puntos']['intermedios']):
-        tiempo_parcial = (i + 1) * (st.session_state['tiempo_estimado'] / (len(st.session_state['puntos']['intermedios']) + 1))
+        tiempo_parcial = (i + 1) * (st.session_state['tiempo_estimado'] / (len(st.session_state['puntos']['intermedios']) + 1)) if st.session_state['tiempo_estimado'] else 0
         hora_estimada = st.session_state['hora_salida'] + timedelta(hours=tiempo_parcial)
 
         # Forzar año 2025
@@ -243,7 +288,7 @@ if query:
         st.session_state['climas'].append({"nombre": punto['nombre'], "clima": clima_intermedio, "hora_estimada": hora_estimada})
 
     # Clima en el destino
-    hora_destino = st.session_state['hora_salida'] + timedelta(hours=st.session_state['tiempo_estimado'])
+    hora_destino = st.session_state['hora_salida'] + timedelta(hours=st.session_state['tiempo_estimado']) if st.session_state['tiempo_estimado'] else st.session_state['hora_salida']
 
     # Forzar año 2025
     hora_destino = hora_destino.replace(year=2025)
@@ -254,9 +299,20 @@ if query:
     # Mostrar resultados de manera orgánica
     st.success("### Resumen de la ruta:")
     st.write(f"Fecha de consulta a la API OpenWeather: {fecha_inicio_api.strftime('%Y-%m-%d')}")  # Mostrar la fecha usada
-    st.write(f"🚴‍♂️ **Distancia total:** {st.session_state['distancia']:.2f} km")
-    st.write(f"⏳ **Tiempo estimado:** {st.session_state['tiempo_estimado']:.2f} horas")
-    st.write(f"📈 **Rango desnivel estimado:** {rango_minimo} - {rango_maximo} metros")
+    if st.session_state['distancia']:
+        st.write(f"🚴‍♂️ **Distancia total:** {st.session_state['distancia']:.2f} km")
+    else:
+        st.warning("No se pudo calcular la distancia.")
+
+    if st.session_state['tiempo_estimado']:
+        st.write(f"⏳ **Tiempo estimado:** {st.session_state['tiempo_estimado']:.2f} horas")
+    else:
+        st.warning("No se pudo calcular el tiempo estimado.")
+
+    if rango_minimo is not None and rango_maximo is not None:
+        st.write(f"📈 **Rango desnivel estimado:** {rango_minimo} - {rango_maximo} metros")
+    else:
+        st.warning("No se pudo calcular el desnivel estimado.")
     st.write("---")
 
     st.write("### Clima en los puntos de la ruta:")
