@@ -38,8 +38,8 @@ def obtener_coordenadas(lugar):
     
     return respuesta[0]["lat"], respuesta[0]["lon"]
 
-# Función para obtener la distancia y el tiempo estimado con OpenRouteService
-def calcular_distancia_tiempo(puntos):
+# Función para obtener la distancia, tiempo estimado y desnivel acumulado con OpenRouteService
+def calcular_distancia_tiempo_desnivel(puntos):
     coords = [[puntos["inicio"]["lon"], puntos["inicio"]["lat"]]]
 
     if "intermedios" in puntos and puntos["intermedios"]:
@@ -56,12 +56,13 @@ def calcular_distancia_tiempo(puntos):
     
     if "routes" not in respuesta:
         st.error("Error en la API de OpenRouteService.")
-        return None, None
+        return None, None, None
     
     distancia_total = respuesta["routes"][0]["summary"]["distance"] / 1000  # Convertir a km
     tiempo_total = respuesta["routes"][0]["summary"]["duration"] / 3600  # Convertir a horas
+    desnivel_acumulado = respuesta["routes"][0]["summary"]["ascent"]  # Desnivel acumulado en metros
 
-    return distancia_total, tiempo_total
+    return distancia_total, tiempo_total, desnivel_acumulado
 
 # Función para obtener el clima con OpenWeatherMap, eligiendo la hora más cercana hacia arriba
 def obtener_clima(lat, lon, fecha_hora):
@@ -89,7 +90,7 @@ def obtener_clima(lat, lon, fecha_hora):
     }
 
 # Función para generar recomendaciones usando el LLM
-def generar_recomendacion_con_llm(climas, distancia, tiempo_estimado):
+def generar_recomendacion_con_llm(climas, distancia, tiempo_estimado, desnivel_acumulado):
     # Crear un resumen de los datos de clima
     resumen_clima = "\n".join(
         f"- {clima['nombre']} ({clima['hora_estimada'].strftime('%H:%M')}): {clima['clima']['condiciones']}, "
@@ -103,17 +104,32 @@ def generar_recomendacion_con_llm(climas, distancia, tiempo_estimado):
         {"role": "user", "content": f"Datos de la ruta:\n"
                                     f"- Distancia total: {distancia:.2f} km\n"
                                     f"- Tiempo estimado: {tiempo_estimado:.2f} horas\n"
+                                    f"- Desnivel acumulado: {desnivel_acumulado} m\n"
                                     f"Datos del clima en los puntos de la ruta:\n"
                                     f"{resumen_clima}\n\n"
-                                    f"Por favor, genera una recomendación técnica y útil para ciclistas de nivel intermedio/avanzado, teniendo en cuenta las condiciones climáticas y la duración de la ruta. "
+                                    f"Por favor, genera una recomendación técnica y útil para ciclistas de nivel intermedio/avanzado, teniendo en cuenta las condiciones climáticas, el desnivel y la duración de la ruta. "
                                     f"Incluye sugerencias sobre equipamiento, hidratación, nutrición, ritmo, y cualquier otro aspecto relevante para un ciclista experimentado."}
     ]
 
     # Convertir el prompt y obtener la respuesta del LLM
     lc_messages = convert_openai_messages(prompt)
-    response = ChatOpenAI(model='gpt-4o-mini', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
+    response = ChatOpenAI(model='gpt-4', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
 
     return response
+
+# Función para forzar el año 2025 en la fecha
+def forzar_año_2025(fecha_str):
+    try:
+        fecha = datetime.strptime(fecha_str, "%Y-%m-%d %H:%M")
+    except ValueError:
+        try:
+            # Si no tiene año, asumimos el año 2025
+            fecha = datetime.strptime(fecha_str, "%m-%d %H:%M")
+            fecha = fecha.replace(year=2025)
+        except ValueError:
+            st.error("Formato de fecha no válido. Usa 'YYYY-MM-DD HH:MM' o 'MM-DD HH:MM'.")
+            return None
+    return fecha
 
 # Interfaz de Streamlit
 st.title("Planificador de Rutas de Bicicleta en Chile 🚴‍♂️")
@@ -139,7 +155,7 @@ if query:
     ]
 
     lc_messages = convert_openai_messages(extract_prompt)
-    response = ChatOpenAI(model='gpt-4o-mini', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
+    response = ChatOpenAI(model='gpt-4', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
 
     match = re.search(r"\{.*\}", response, re.DOTALL)
     if match:
@@ -155,6 +171,11 @@ if query:
     if not extracted_data:
         st.error("No se pudo extraer la información correctamente.")
     else:
+        # Forzar el año 2025 en la fecha de salida
+        hora_salida = forzar_año_2025(extracted_data["hora_salida"])
+        if not hora_salida:
+            st.stop()
+
         # Obtener coordenadas de los puntos
         puntos = {"inicio": {}, "destino": {}, "intermedios": []}
 
@@ -170,11 +191,10 @@ if query:
                 if lat and lon:
                     puntos["intermedios"].append({"nombre": intermedio, "lat": lat, "lon": lon})
 
-        # Calcular distancia y tiempo
-        distancia, tiempo_estimado = calcular_distancia_tiempo(puntos)
+        # Calcular distancia, tiempo y desnivel acumulado
+        distancia, tiempo_estimado, desnivel_acumulado = calcular_distancia_tiempo_desnivel(puntos)
 
         # Obtener clima en los puntos clave
-        hora_salida = datetime.strptime(extracted_data["hora_salida"], "%Y-%m-%d %H:%M")
         climas = []
 
         # Clima en el inicio
@@ -195,8 +215,10 @@ if query:
 
         # Mostrar resultados de manera orgánica
         st.success("### Resumen de la ruta:")
+        st.write(f"📅 **Fecha de salida:** {hora_salida.strftime('%Y-%m-%d %H:%M')}")
         st.write(f"🚴‍♂️ **Distancia total:** {distancia:.2f} km")
         st.write(f"⏳ **Tiempo estimado:** {tiempo_estimado:.2f} horas")
+        st.write(f"⛰️ **Desnivel acumulado:** {desnivel_acumulado} m")
         st.write("---")
 
         st.write("### Clima en los puntos de la ruta:")
@@ -209,7 +231,7 @@ if query:
         st.write("---")
 
         # Generar y mostrar recomendación final usando el LLM
-        recomendacion = generar_recomendacion_con_llm(climas, distancia, tiempo_estimado)
+        recomendacion = generar_recomendacion_con_llm(climas, distancia, tiempo_estimado, desnivel_acumulado)
         st.write("### Recomendación Técnica:")
         st.info(recomendacion)
 
