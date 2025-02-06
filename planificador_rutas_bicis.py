@@ -103,10 +103,10 @@ def generar_recomendacion_con_llm(climas):
 
     # Crear el prompt para el LLM
     prompt = [
-        {"role": "system", "content": "Eres un experto en ciclismo de nivel avanzado. Genera una recomendación breve de la ropa requerida según el clima (tricota, chaqueta, calza larga o corta, manguillas y pierneras) y accesorios como llaves y camara de repuesto. Ademas, si la salida es larga recomendar una cantidad de geles y carbohidratos por hora."},
+        {"role": "system", "content": "Eres un experto en ciclismo de nivel avanzado. Genera una recomendación breve de la ropa requerida según el clima (tricota, chaqueta, calza larga o corta, manguillas y pierneras) y accesorios como multi-herramietasm o camara de repuesto, verificar carga de elementos electronicos. Ademas, si la salida es larga recomendar una cantidad de geles y carbohidratos por hora."},
         {"role": "user", "content": f"Datos del clima en los puntos de la ruta:\n"
                                     f"{resumen_clima}\n\n"
-                                    f"Por favor, genera una recomendación breve y experta enfocada en la ropa, alimentación y accesorios más adecuada para las condiciones climáticas del viaje. Usa un formato de checklist. "}
+                                    f"Por favor, genera una recomendación breve y experta enfocada en la ropa, alimentación y accesorios más adecuada para las condiciones climáticas del viaje. Usa un formato de checklist. No entregues notas extras. NO recomiendes bidon de agua.  "}
     ]
 
     # Convertir el prompt y obtener la respuesta del LLM
@@ -117,10 +117,9 @@ def generar_recomendacion_con_llm(climas):
 
 # Interfaz de Streamlit
 st.title("Planificador de Rutas de Bicicleta en Chile 🚴‍♂️")
-# st.subheader("Pronóstico máximo a 7 días")
 
 # Campo de entrada sin mensaje precargado
-query = st.text_input("Ingresa tu ruta (Pronóstico máximo a 7 días):", placeholder="Ej: Saldré a pedalear el 8 de febrero del 2025 a las 8:00 desde providencia a farellones, volviendo a providencia", key="input")
+query = st.text_input("Ingresa tu ruta (Pronóstico máximo a 5 días):", placeholder="Ej: Saldré a pedalear el 8 de febrero del 2025 a las 8:00 desde providencia a farellones, volviendo a providencia", key="input")
 
 # Inicializar variables de sesión
 if 'extracted_data' not in st.session_state:
@@ -219,8 +218,8 @@ if query:
 
     # Aplicar ajuste manual al desnivel positivo
     desnivel_ajustado = st.session_state['desnivel_positivo'] / 2
-    rango_minimo = round(desnivel_ajustado - 200, 2)
-    rango_maximo = round(desnivel_ajustado + 200, 2)
+    rango_minimo = round(desnivel_ajustado - 300, 2)
+    rango_maximo = round(desnivel_ajustado + 100, 2)
 
     # Obtener clima en los puntos clave
     # Forzar año 2025
