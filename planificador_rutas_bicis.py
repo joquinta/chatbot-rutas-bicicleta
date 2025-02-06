@@ -108,14 +108,20 @@ def obtener_clima(lat, lon, fecha_hora):
         st.warning(f"Error al obtener el clima: Código {respuesta.get('cod')}")
         return {"temperatura": "N/A", "condiciones": "No disponible", "viento": "N/A"}, fecha_hora
 
+    # Obtener la zona horaria UTC
+    utc_timezone = pytz.utc
+
     # Filtrar solo pronósticos con timestamps en el futuro (hacia arriba)
-    predicciones_futuras = [p for p in respuesta["list"] if datetime.utcfromtimestamp(p["dt"]) >= fecha_hora_utc]
+    predicciones_futuras = [
+        p for p in respuesta["list"]
+        if datetime.utcfromtimestamp(p["dt"]).replace(tzinfo=utc_timezone) >= fecha_hora_utc
+    ]
 
     if not predicciones_futuras:
         st.warning("No se encontraron pronósticos futuros.")
         return {"temperatura": "N/A", "condiciones": "No disponible", "viento": "N/A"}, fecha_hora
 
-    mejor_prediccion = min(predicciones_futuras, key=lambda x: datetime.utcfromtimestamp(x["dt"]))
+    mejor_prediccion = min(predicciones_futuras, key=lambda x: datetime.utcfromtimestamp(x["dt"]).replace(tzinfo=utc_timezone))
 
     # Convertir velocidad del viento de m/s a km/h (1 m/s = 3.6 km/h)
     viento_kmh = round(mejor_prediccion["wind"]["speed"] * 3.6, 1)
