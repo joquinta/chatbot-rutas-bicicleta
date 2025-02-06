@@ -103,15 +103,15 @@ def generar_recomendacion_con_llm(climas):
 
     # Crear el prompt para el LLM
     prompt = [
-        {"role": "system", "content": "Eres un experto en ciclismo de nivel intermedio/avanzado. Genera una recomendación breve y concisa, enfocada en la ropa y la alimentación, basándote en las condiciones climáticas del viaje."},
+        {"role": "system", "content": "Eres un experto en ciclismo de nivel avanzado. Genera una recomendación breve y concisa, enfocada en la ropa y la alimentación, basándote en las condiciones climáticas del viaje."},
         {"role": "user", "content": f"Datos del clima en los puntos de la ruta:\n"
                                     f"{resumen_clima}\n\n"
-                                    f"Por favor, genera una recomendación breve y experta enfocada en la ropa y la alimentación más adecuada para las condiciones climáticas del viaje. Sé conciso y práctico."}
+                                    f"Por favor, genera una recomendación breve y experta enfocada en la ropa y la alimentación más adecuada para las condiciones climáticas del viaje. Usa un formato de checklist. "}
     ]
 
     # Convertir el prompt y obtener la respuesta del LLM
     lc_messages = convert_openai_messages(prompt)
-    response = ChatOpenAI(model='gpt-4', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
+    response = ChatOpenAI(model='gpt-4o-mini', openai_api_key=OPENAI_API_KEY).invoke(lc_messages).content
 
     return response
 
@@ -119,7 +119,7 @@ def generar_recomendacion_con_llm(climas):
 st.title("Planificador de Rutas de Bicicleta en Chile 🚴‍♂️")
 
 # Campo de entrada sin mensaje precargado
-query = st.text_input("Ingresa tu ruta:", placeholder="Ej: Saldré a pedalear el 8 de febrero del 2025 a las 8:00 desde Osorno, pasando por San Pablo y La Unión, hasta Valdivia.", key="input")
+query = st.text_input("Ingresa tu ruta:", placeholder="Ej: Saldré a pedalear el 8 de febrero del 2025 a las 8:00 desde providencia a farellones, volviendo a providencia", key="input")
 
 # Inicializar variables de sesión
 if 'extracted_data' not in st.session_state:
@@ -185,7 +185,7 @@ if query:
         try:
             st.session_state['hora_salida'] = datetime.strptime(st.session_state['extracted_data']["hora_salida"], "%Y-%m-%d %H:%M")
         except ValueError:
-            st.info("Formato de fecha/hora incorrecto. Asegúrate de usar YYYY-MM-DD HH:MM.")
+            st.info("Por favor, especifica en el mensaje la hora de salida en tu ruta.")
             st.stop()
 
     # Obtener coordenadas de los puntos
