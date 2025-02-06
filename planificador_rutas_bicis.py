@@ -38,7 +38,7 @@ def obtener_coordenadas(lugar):
 
     return respuesta[0]["lat"], respuesta[0]["lon"]
 
-# Función para obtener la distancia y el tiempo estimado con OpenRouteService
+# Función para obtener la distancia, el tiempo estimado y el desnivel positivo acumulado con OpenRouteService
 def calcular_distancia_tiempo(puntos):
     coords = [[puntos["inicio"]["lon"], puntos["inicio"]["lat"]]]
 
@@ -50,18 +50,19 @@ def calcular_distancia_tiempo(puntos):
 
     url = "https://api.openrouteservice.org/v2/directions/cycling-regular"
     headers = {"Authorization": ORS_API_KEY, "Content-Type": "application/json"}
-    data = {"coordinates": coords, "format": "json"}
+    data = {"coordinates": coords, "format": "json", "elevation": True}  # Añadido "elevation": True
 
     respuesta = requests.post(url, headers=headers, json=data).json()
 
     if "routes" not in respuesta:
         st.error("Error en la API de OpenRouteService.")
-        return None, None
+        return None, None, None
 
     distancia_total = respuesta["routes"][0]["summary"]["distance"] / 1000  # Convertir a km
     tiempo_total = respuesta["routes"][0]["summary"]["duration"] / 3600  # Convertir a horas
+    desnivel_positivo = respuesta["routes"][0]["summary"]["ascent"] #Desnivel positivo acumulado
 
-    return distancia_total, tiempo_total
+    return distancia_total, tiempo_total, desnivel_positivo
 
 # Función para obtener el clima con OpenWeatherMap, eligiendo la hora más cercana hacia arriba
 def obtener_clima(lat, lon, fecha_hora):
@@ -131,6 +132,8 @@ if 'distancia' not in st.session_state:
     st.session_state['distancia'] = None
 if 'tiempo_estimado' not in st.session_state:
     st.session_state['tiempo_estimado'] = None
+if 'desnivel_positivo' not in st.session_state:
+    st.session_state['desnivel_positivo'] = None
 if 'climas' not in st.session_state:
     st.session_state['climas'] = []
 
@@ -210,8 +213,8 @@ if query:
                     st.session_state['puntos']['intermedios'].append({"nombre": intermedio, "lat": lat, "lon": lon})
 
     # Calcular distancia y tiempo
-    if not st.session_state['distancia'] or not st.session_state['tiempo_estimado']:
-        st.session_state['distancia'], st.session_state['tiempo_estimado'] = calcular_distancia_tiempo(st.session_state['puntos'])
+    if not st.session_state['distancia'] or not st.session_state['tiempo_estimado'] or not st.session_state['desnivel_positivo']:
+        st.session_state['distancia'], st.session_state['tiempo_estimado'], st.session_state['desnivel_positivo'] = calcular_distancia_tiempo(st.session_state['puntos'])
 
     # Obtener clima en los puntos clave
     # Forzar año 2025
@@ -248,6 +251,7 @@ if query:
     st.write(f"Fecha de consulta a la API OpenWeather: {fecha_inicio_api.strftime('%Y-%m-%d')}")  # Mostrar la fecha usada
     st.write(f"🚴‍♂️ **Distancia total:** {st.session_state['distancia']:.2f} km")
     st.write(f"⏳ **Tiempo estimado:** {st.session_state['tiempo_estimado']:.2f} horas")
+    st.write(f"⛰️ **Desnivel positivo acumulado:** {st.session_state['desnivel_positivo']:.2f} metros") #Mostrar desnivel positivo
     st.write("---")
 
     st.write("### Clima en los puntos de la ruta:")
